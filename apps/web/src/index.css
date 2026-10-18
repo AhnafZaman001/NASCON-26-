@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root {
+  --font-geist-sans: "Geist Variable"; --font-geist-mono: "Geist Mono Variable";
+  --bg: #f5f6fa; --surface: #ffffff; --surface-2: #eef0f6; --border: #dfe2ec; --fg: #12131a; --muted: #5b6275;
+  --brand: #4338ca; --brand-fg: #ffffff; --ok: #0f7a55; --warn: #a85a00; --bad: #b4232a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0c10; --surface: #14161d; --surface-2: #1c1f29; --border: #272b38; --fg: #eceef4; --muted: #a0a7ba;
+    --brand: #818cf8; --brand-fg: #0b0c10; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+  }
+}
+@theme inline {
+  --color-bg: var(--bg); --color-surface: var(--surface); --color-surface2: var(--surface-2); --color-line: var(--border);
+  --color-fg: var(--fg); --color-muted: var(--muted); --color-brand: var(--brand); --color-brandfg: var(--brand-fg);
+  --color-ok: var(--ok); --color-warn: var(--warn); --color-bad: var(--bad);
+  --font-sans: var(--font-geist-sans); --font-mono: var(--font-geist-mono);
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-geist-sans), system-ui, sans-serif; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+dialog { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@keyframes pulse-ring { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+.pulse { animation: pulse-ring 1.2s ease-in-out infinite; }

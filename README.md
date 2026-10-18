@@ -3,7 +3,8 @@
 Monorepo (npm workspaces) for the NASCON '26 web platform.
 
 ```
-apps/web        Next.js (App Router, TypeScript, Tailwind) - UI + API routes
+apps/web        React + Vite + React Router + Tailwind (frontend)
+apps/api        Express API (auth-checked server routes, service-role Supabase)
 apps/worker     BullMQ consumer: sends queued emails with nodemailer
 packages/ui     Shared constants and UI primitives
 packages/queue  Shared BullMQ queue name, job types, enqueue helper
@@ -13,9 +14,11 @@ supabase/       SQL migrations (apply in numeric order)
 ## Getting started
 ```
 npm install
-cp apps/web/.env.example apps/web/.env.local       # Supabase keys, REDIS_URL
+cp apps/web/.env.example apps/web/.env.local       # VITE_ Supabase public keys
+cp apps/api/.env.example apps/api/.env               # Supabase secret, Redis
 cp apps/worker/.env.example apps/worker/.env       # Supabase secret, Redis, SMTP
-npm run dev            # web
+npm run dev            # web  (http://localhost:5173)
+npm run dev:api        # API  (http://localhost:4000)
 npm run dev:worker     # email worker (needs Redis: docker run -p 6379:6379 redis:7)
 ```
 

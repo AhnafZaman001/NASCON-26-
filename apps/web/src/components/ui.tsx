@@ -1,6 +1,6 @@
-"use client";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { cn, initials, mmss } from "@/lib/utils";
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" };
@@ -68,7 +68,7 @@ export const Avatar = ({ name, className }: { name: string; className?: string }
 );
 export function Stat({ label, value, sub, href }: { label: string; value: ReactNode; sub?: string; href?: string }) {
   const inner = (<><p className="text-xs font-medium text-muted">{label}</p><p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>{sub && <p className="mt-0.5 text-xs text-muted">{sub}</p>}</>);
-  return href ? <a href={href} className="block rounded-xl border border-line bg-surface p-4 transition hover:border-brand">{inner}</a> : <Card>{inner}</Card>;
+  return href ? <Link to={href} className="block rounded-xl border border-line bg-surface p-4 transition hover:border-brand">{inner}</Link> : <Card>{inner}</Card>;
 }
 
 /* live clock */

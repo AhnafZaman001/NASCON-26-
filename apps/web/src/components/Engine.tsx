@@ -1,4 +1,3 @@
-"use client";
 import { useEffect, useRef } from "react";
 import { hydrate, tick, useStore } from "@/lib/store";
 import { toast, ToastHost } from "./ui";

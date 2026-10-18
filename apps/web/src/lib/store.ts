@@ -1,4 +1,3 @@
-"use client";
 /**
  * Client data layer. Every mutation goes through the actions below, so the
  * Supabase/API swap point is this one file: replace each action body with a

@@ -8,11 +8,12 @@
   ],
   "scripts": {
     "dev": "npm run dev -w @nascon/web",
-    "build": "npm run build -w @nascon/web",
-    "start": "npm run start -w @nascon/web",
-    "lint": "npm run lint -w @nascon/web",
+    "dev:api": "npm run dev -w @nascon/api",
     "dev:worker": "npm run dev -w @nascon/worker",
+    "build": "npm run build -w @nascon/web",
+    "start:api": "npm run start -w @nascon/api",
     "start:worker": "npm run start -w @nascon/worker",
-    "typecheck:worker": "npm run typecheck -w @nascon/worker"
+    "lint": "npm run lint -w @nascon/web",
+    "typecheck": "npm run typecheck -w @nascon/api -w @nascon/worker"
   }
 }

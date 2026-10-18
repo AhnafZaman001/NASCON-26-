@@ -1,6 +1,5 @@
-"use client";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Bell, CalendarDays, CreditCard, Gauge, Inbox, LogOut, Menu, Plug, ScrollText, Settings, ShieldAlert, Users, KanbanSquare, X } from "lucide-react";
 import { useApp } from "@/lib/app";
@@ -13,9 +12,9 @@ const statusLabel: Record<Availability, string> = { available: "Available", busy
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const { s, me, can, isAdmin, companyWide } = useApp();
-  const path = usePathname(); const router = useRouter();
+  const path = useLocation().pathname; const router = useNavigate();
   const [open, setOpen] = useState(false); const [bell, setBell] = useState(false);
-  useEffect(() => { if (s.hydrated && !me) router.replace("/login"); }, [s.hydrated, me, router]);
+  useEffect(() => { if (s.hydrated && !me) router("/login", { replace: true }); }, [s.hydrated, me, router]);
   if (!me) return null;
   const rec = recoveryItems(s).filter((r) => companyWide || r.lead.ownerId === me.id).length;
   const mine = s.notifications.filter((n) => n.userId === me.id); const unread = mine.filter((n) => !n.read).length;
@@ -38,7 +37,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {nav.map((n) => {
         const active = path === n.href || path.startsWith(n.href + "/");
         return (
-          <Link key={n.href} href={n.href} onClick={() => setOpen(false)} aria-current={active ? "page" : undefined}
+          <Link key={n.href} to={n.href} onClick={() => setOpen(false)} aria-current={active ? "page" : undefined}
             className={cn("flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium", active ? "bg-brand/15 text-brand" : "text-muted hover:bg-surface2 hover:text-fg")}>
             <n.icon size={17} aria-hidden />{n.label}
             {!!n.badge && <Badge tone="bad" className="ml-auto"><span className="sr-only">Items needing attention: </span>{n.badge}</Badge>}
@@ -78,13 +77,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <div className="absolute right-0 mt-2 max-h-96 w-[min(22rem,calc(100vw-1.5rem))] overflow-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
                   {mine.length === 0 && <p className="p-3 text-sm text-muted">No notifications yet.</p>}
                   {mine.slice(0, 12).map((n) => (
-                    <Link key={n.id} href={n.leadId ? `/leads` : "#"} onClick={() => setBell(false)} className="block rounded-lg p-2.5 text-sm hover:bg-surface2">{n.text}<span className="block text-xs text-muted">{ago(n.at)}</span></Link>
+                    <Link key={n.id} to={n.leadId ? `/leads` : "#"} onClick={() => setBell(false)} className="block rounded-lg p-2.5 text-sm hover:bg-surface2">{n.text}<span className="block text-xs text-muted">{ago(n.at)}</span></Link>
                   ))}
                 </div>
               )}
             </div>
             <div className="hidden items-center gap-2 sm:flex"><Avatar name={me.name} /><div className="text-xs leading-tight"><p className="font-medium">{me.name}</p><p className="text-muted">{me.roleName}</p></div></div>
-            <button aria-label="Log out" title="Log out" onClick={() => { logout(); router.replace("/login"); }} className="rounded-lg p-2 hover:bg-surface2"><LogOut size={18} /></button>
+            <button aria-label="Log out" title="Log out" onClick={() => { logout(); router("/login", { replace: true }); }} className="rounded-lg p-2 hover:bg-surface2"><LogOut size={18} /></button>
           </div>
         </header>
         <main className="mx-auto max-w-7xl p-3 sm:p-5">{children}</main>

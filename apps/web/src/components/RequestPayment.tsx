@@ -1,4 +1,3 @@
-"use client";
 import { useState } from "react";
 import { useApp } from "@/lib/app";
 import { requestPayment } from "@/lib/store";

@@ -1,4 +1,3 @@
-"use client";
 import { useStore, getState } from "./store";
 import type { Perm, State } from "./types";
 
