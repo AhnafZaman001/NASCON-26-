@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const store: Record<string,string> = {};
 (globalThis as any).localStorage = { getItem: (k:string)=>store[k]??null, setItem:(k:string,v:string)=>{store[k]=v} };
 (globalThis as any).window = { addEventListener(){} };
@@ -26,7 +27,7 @@ console.log("new lead owners", fresh.map(l => l.ownerId)); assert.ok(fresh.every
 S.setStatus("m_bilal","leave");
 assert.ok(!g().leads.some(l => l.ownerId==="m_bilal" && l.status==="assigned"), "unacked leads reassigned on leave");
 // stage rules
-let r = S.moveOpp("o2","st_prop"); console.log("required field:", r.error); assert.equal(r.ok,false);
+const r = S.moveOpp("o2","st_prop"); console.log("required field:", r.error); assert.equal(r.ok,false);
 S.setOppCustom("o2","f_budget","$50k - $150k"); assert.equal(S.moveOpp("o2","st_prop").ok,true);
 // delete stage safety
 assert.equal(S.deleteStage("pl_sales","st_prop").ok,false); assert.equal(S.deleteStage("pl_sales","st_prop","st_qual").ok,true);
