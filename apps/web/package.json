@@ -6,11 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:engine": "tsx tests/engine.test.ts"
   },
   "dependencies": {
     "@nascon/ui": "*",
     "@supabase/supabase-js": "^2.45.0",
+    "geist": "^1.8.1",
+    "lucide-react": "^1.59.0",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -24,6 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

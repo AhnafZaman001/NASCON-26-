@@ -1,11 +1,10 @@
-import { EVENT_NAME, EVENT_YEAR } from "@nascon/ui";
+"use client";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useApp } from "@/lib/app";
 
 export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="text-5xl font-bold">
-        {EVENT_NAME} &rsquo;{String(EVENT_YEAR).slice(2)}
-      </h1>
-    </main>
-  );
+  const { me } = useApp(); const r = useRouter();
+  useEffect(() => { r.replace(me ? "/dashboard" : "/login"); }, [me, r]);
+  return null;
 }
