@@ -2,11 +2,17 @@
   "name": "nascon-26",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w @nascon/web",
     "build": "npm run build -w @nascon/web",
     "start": "npm run start -w @nascon/web",
-    "lint": "npm run lint -w @nascon/web"
+    "lint": "npm run lint -w @nascon/web",
+    "dev:worker": "npm run dev -w @nascon/worker",
+    "start:worker": "npm run start -w @nascon/worker",
+    "typecheck:worker": "npm run typecheck -w @nascon/worker"
   }
 }

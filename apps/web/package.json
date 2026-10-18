@@ -10,6 +10,7 @@
     "test:engine": "tsx tests/engine.test.ts"
   },
   "dependencies": {
+    "@nascon/queue": "*",
     "@nascon/ui": "*",
     "@supabase/supabase-js": "^2.45.0",
     "geist": "^1.8.1",
