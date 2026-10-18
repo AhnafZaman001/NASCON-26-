@@ -8,34 +8,133 @@
 import { useSyncExternalStore } from "react";
 import { uid, startOfDay } from "./utils";
 import { blankWorkspace, defaultSettings, emptyState, makeSeed } from "./seed";
+import type { ServerWorkspace } from "./api";
 import type {
   Activity, Appointment, Availability, Contact, Criterion, CustomField, FieldType, IntegrationKey, Lead,
   Level, Member, Perm, State,
 } from "./types";
 
-const KEY = "nascon26.state.v1";
+/*
+ * Two modes:
+ *  - demo: the sample workspace, stored only in this browser (DEMO_KEY).
+ *  - live: signed in with Supabase. Workspace, team, roles and settings come from apps/api and every
+ *    change to them goes through the API (server-enforced permissions + audit). Modules not yet moved
+ *    to the server (CRM, leads, ...) are kept per workspace in this browser (liveKey) until migrated.
+ */
+const DEMO_KEY = "nascon26.state.v2";
+const liveKey = (wsId: string) => `nascon26.live.v1.${wsId}`;
+let storageKey = DEMO_KEY;
 const SERVER = emptyState();
 let state: State = SERVER;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage full or blocked */ } };
+const save = () => { try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* storage full or blocked */ } };
 function mutate(fn: (s: State) => void) { const n = structuredClone(state); fn(n); state = n; save(); emit(); }
 
 export const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 export const useStore = () => useSyncExternalStore(subscribe, () => state, () => SERVER);
 export const getState = () => state;
+const isLive = () => state.mode === "live";
 
-export function hydrate() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    state = raw ? { ...JSON.parse(raw), hydrated: true } : makeSeed();
-  } catch { state = makeSeed(); }
-  save(); emit();
+/** UI feedback hooks; Engine wires these to toasts (kept out of here so the store runs in tests). */
+let feedback: { error: (msg: string) => void; ok: (msg: string) => void } = { error: (m) => console.error(m), ok: () => {} };
+export const setFeedback = (f: typeof feedback) => { feedback = f; };
+
+let listening = false;
+function listenStorage() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
   window.addEventListener("storage", (e) => {
-    if (e.key === KEY && e.newValue) { state = { ...JSON.parse(e.newValue), hydrated: true }; emit(); }
+    if (e.key === storageKey && e.newValue) { state = { ...JSON.parse(e.newValue), hydrated: true }; emit(); }
   });
 }
+
+/** Demo mode boot (no Supabase session). */
+export function hydrate() {
+  storageKey = DEMO_KEY;
+  try {
+    const raw = localStorage.getItem(DEMO_KEY);
+    state = raw ? { ...JSON.parse(raw), mode: "demo", hydrated: true } : makeSeed();
+  } catch { state = makeSeed(); }
+  save(); emit(); listenStorage();
+}
 export const resetDemo = () => { state = makeSeed(); save(); emit(); };
+
+/* ---------- live mode (Supabase session + apps/api) ---------- */
+const localTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** Replace workspace/team/roles/settings with the server's copy. */
+function applyServer(p: ServerWorkspace) {
+  const n = structuredClone(state);
+  n.mode = "live"; n.hydrated = true;
+  n.workspace = p.workspace; n.roles = p.roles; n.meId = p.meId; n.settings = p.settings;
+  n.members = p.members.map((m) => { const { hiddenTiles, ...rest } = m; void hiddenTiles; return { ...rest, tz: localTz() }; });
+  const mine = p.members.find((m) => m.id === p.meId);
+  if (mine) n.hiddenTiles[p.meId] = mine.hiddenTiles;
+  state = n; save(); emit();
+}
+
+function bootLive(p: ServerWorkspace) {
+  storageKey = liveKey(p.workspace.id);
+  let base: State;
+  try {
+    const raw = localStorage.getItem(storageKey);
+    base = raw ? JSON.parse(raw) : blankWorkspace(p.workspace.name, "", "");
+  } catch { base = blankWorkspace(p.workspace.name, "", ""); }
+  state = { ...base, mode: "live", hydrated: true };
+  applyServer(p);
+  listenStorage();
+}
+
+/** If a Supabase session exists, load the workspace from the API. Returns false to fall back to demo mode. */
+export async function bootFromSession(): Promise<boolean> {
+  const { supabase } = await import("./supabase");
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return false;
+  const { api, ApiError } = await import("./api");
+  try {
+    bootLive(await api("/me"));
+    return true;
+  } catch (e) {
+    // 401/403: session no longer valid or not in a workspace -> sign out. Network errors keep the session.
+    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) await supabase.auth.signOut();
+    feedback.error(e instanceof Error ? e.message : "Could not load your workspace.");
+    return false;
+  }
+}
+
+/** Run an API call that returns the workspace payload, apply it, and report errors. */
+async function remote<T extends ServerWorkspace>(path: string, method: string, body?: unknown, okMsg?: string): Promise<T | null> {
+  const { api } = await import("./api");
+  try {
+    const p = await api<T>(path, { method, body });
+    applyServer(p);
+    if (okMsg) feedback.ok(okMsg);
+    return p;
+  } catch (e) {
+    feedback.error(e instanceof Error ? e.message : "Something went wrong.");
+    // resync so optimistic local changes don't linger
+    try { applyServer(await api("/me")); } catch { /* offline: keep local copy */ }
+    return null;
+  }
+}
+
+export async function signIn(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  const { supabase } = await import("./supabase");
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) return { ok: false, error: /invalid/i.test(error.message) ? "That email and password don't match." : error.message };
+  return (await bootFromSession()) ? { ok: true } : { ok: false, error: "Signed in, but your workspace could not be loaded." };
+}
+
+export async function signUp(company: string, name: string, email: string, password: string): Promise<{ ok: boolean; error?: string; fields?: Record<string, string> }> {
+  const { api, ApiError } = await import("./api");
+  try {
+    await api("/auth/signup", { method: "POST", body: { company, name, email, password } });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Sign up failed.", fields: e instanceof ApiError ? e.fields : undefined };
+  }
+  return signIn(email, password);
+}
 
 /* ---------- helpers ---------- */
 const now = () => Date.now();
@@ -141,50 +240,120 @@ export const captureLead = (name: string, phone: string, email: string, note: st
 });
 
 /* ---------- availability & team ---------- */
-export const setStatus = (memberId: string, status: Availability) => mutate((s) => {
-  const m = member(s, memberId); const me = member(s, s.meId); if (!m || !me) return;
-  if (m.id !== me.id && me.level === "user") return;
-  const before = m.status; m.status = status; log(s, "availability.changed", m.name, before, status);
-  if (status === "leave" || status === "offline") {
-    for (const l of s.leads) {
-      if (l.ownerId !== m.id) continue;
-      if (l.status === "assigned" || (l.status === "acknowledged" && s.settings.ackedOnAbsence === "reassign"))
-        place(s, l, pickNext(s, [m.id]) ?? member(s, s.settings.managerId), "reassign", `${m.name} set to ${status}`);
-    }
+/** Moves this member's local leads to someone else (local copy of what set_member_status does in SQL). */
+function reassignLocalLeads(s: State, m: Member, why: string) {
+  for (const l of s.leads) {
+    if (l.ownerId !== m.id) continue;
+    if (l.status === "assigned" || (l.status === "acknowledged" && s.settings.ackedOnAbsence === "reassign"))
+      place(s, l, pickNext(s, [m.id]) ?? member(s, s.settings.managerId), "reassign", why);
   }
-});
-export const inviteMember = (name: string, email: string, level: Level, roleName: string, perms: Perm[]) => mutate((s) => {
-  const me = member(s, s.meId); if (!me || me.level === "user" || level === "owner") return;
-  s.members.push({ id: uid("m"), name, email, level, roleName, perms, status: "available", notifyDest: email, calendar: "none", tz: "Asia/Karachi" });
-  log(s, "member.invited", name, undefined, `${level} / ${roleName}`);
-});
-export const updateMember = (id: string, patch: Partial<Pick<Member, "level" | "roleName" | "perms" | "notifyDest">>) => mutate((s) => {
-  const me = member(s, s.meId); const m = member(s, id); if (!me || !m || me.level === "user") return;
-  if (m.level === "owner" && me.level !== "owner") return; // admins cannot modify the Owner
-  if (patch.level === "owner") return;
-  const before = `${m.level}/${m.roleName}/${m.perms.join(",")}`; Object.assign(m, patch);
-  log(s, "permission.changed", m.name, before, `${m.level}/${m.roleName}/${m.perms.join(",")}`);
-});
-export const removeMember = (id: string) => mutate((s) => {
-  const me = member(s, s.meId); const m = member(s, id); if (!me || !m || me.level === "user" || m.level === "owner" || (m.level === "admin" && me.level !== "owner")) return;
-  for (const l of s.leads) if (l.ownerId === m.id && l.status !== "unassigned") place(s, l, pickNext(s, [m.id]) ?? member(s, s.settings.managerId), "reassign", `${m.name} removed`);
-  for (const o of s.opps) if (o.ownerId === m.id) o.ownerId = null;
-  s.members = s.members.filter((x) => x.id !== id); log(s, "member.removed", m.name);
-});
-export const setSettings = (patch: Partial<State["settings"]>) => mutate((s) => {
-  if (!canDo(s, "assignment.manage")) return;
-  log(s, "assignment.rules_changed", "Assignment rules", JSON.stringify(s.settings), JSON.stringify({ ...s.settings, ...patch }));
-  Object.assign(s.settings, patch);
-});
+}
+const canManageTeam = (me: Member | null) => !!me && (me.level !== "user" || me.perms.includes("users.manage"));
+const applyRole = (s: State, m: Member) => {
+  const r = s.roles.find((x) => x.id === m.roleId);
+  m.roleName = m.level === "owner" ? "Owner" : r?.name ?? "No role";
+  m.perms = m.level === "owner" ? m.perms : r?.perms ?? [];
+};
+
+export const setStatus = (memberId: string, status: Availability) => {
+  mutate((s) => {
+    const m = member(s, memberId); const me = member(s, s.meId); if (!m || !me) return;
+    if (m.id !== me.id && me.level === "user" && !me.perms.includes("assignment.manage")) return;
+    const before = m.status; m.status = status;
+    if (!isLive()) log(s, "availability.changed", m.name, before, status);
+    if (status === "leave" || status === "offline") reassignLocalLeads(s, m, `${m.name} set to ${status}`);
+  });
+  if (isLive()) void remote(`/members/${memberId}/status`, "POST", { status });
+};
+
+/** Returns the one-time temporary password in live mode (shown once to the inviter). */
+export async function inviteMember(name: string, email: string, level: Exclude<Level, "owner">, roleId: string | null): Promise<{ tempPassword?: string } | null> {
+  if (isLive()) {
+    const p = await remote<ServerWorkspace & { invited: { tempPassword: string } }>("/members", "POST", { name, email, level, roleId }, `${name} added`);
+    return p ? { tempPassword: p.invited.tempPassword } : null;
+  }
+  mutate((s) => {
+    const me = member(s, s.meId); if (!canManageTeam(me) || (level === "admin" && me?.level !== "owner")) return;
+    const m: Member = { id: uid("m"), name, email, level, roleId, roleName: "", perms: [], status: "available", notifyDest: email, calendar: "none", tz: localTz() };
+    applyRole(s, m); s.members.push(m);
+    log(s, "member.invited", name, undefined, `${level} / ${m.roleName}`);
+  });
+  return {};
+}
+
+export const updateMember = (id: string, patch: { level?: Exclude<Level, "owner">; roleId?: string | null }) => {
+  if (isLive()) { void remote(`/members/${id}`, "PATCH", patch, "Team member updated"); return; }
+  mutate((s) => {
+    const me = member(s, s.meId); const m = member(s, id); if (!me || !m || !canManageTeam(me)) return;
+    if (m.level === "owner" || (m.level === "admin" && me.level !== "owner")) return; // F1.2
+    if (patch.level === "admin" && me.level !== "owner") return;
+    const before = `${m.level}/${m.roleName}`; Object.assign(m, patch); applyRole(s, m);
+    log(s, "permission.changed", m.name, before, `${m.level}/${m.roleName}`);
+  });
+};
+
+export const removeMember = (id: string) => {
+  if (isLive()) {
+    mutate((s) => { const m = member(s, id); if (m) reassignLocalLeads(s, { ...m, status: "offline" }, `${m.name} removed`); });
+    void remote(`/members/${id}`, "DELETE", undefined, "Team member removed");
+    return;
+  }
+  mutate((s) => {
+    const me = member(s, s.meId); const m = member(s, id); if (!me || !m || !canManageTeam(me) || m.level === "owner" || (m.level === "admin" && me.level !== "owner")) return;
+    for (const l of s.leads) if (l.ownerId === m.id && l.status !== "unassigned") place(s, l, pickNext(s, [m.id]) ?? member(s, s.settings.managerId), "reassign", `${m.name} removed`);
+    for (const o of s.opps) if (o.ownerId === m.id) o.ownerId = null;
+    s.members = s.members.filter((x) => x.id !== id); log(s, "member.removed", m.name);
+  });
+};
+
+/** Create (id null) or update a role: a named set of permissions (F1.3). */
+export const saveRole = (id: string | null, name: string, perms: Perm[]) => {
+  if (isLive()) { void remote(id ? `/roles/${id}` : "/roles", id ? "PATCH" : "POST", { name, perms }, id ? undefined : `Role "${name}" created`); return; }
+  mutate((s) => {
+    if (!canManageTeam(member(s, s.meId))) return;
+    const r = id ? s.roles.find((x) => x.id === id) : null;
+    if (r) { log(s, "role.changed", r.name, `${r.name}: ${r.perms.join(", ")}`, `${name}: ${perms.join(", ")}`); r.name = name; r.perms = perms; }
+    else { s.roles.push({ id: uid("r"), name, perms }); log(s, "role.created", name, undefined, perms.join(", ")); }
+    s.members.forEach((m) => applyRole(s, m));
+  });
+};
+
+export const deleteRole = (id: string) => {
+  if (isLive()) { void remote(`/roles/${id}`, "DELETE", undefined, "Role deleted"); return; }
+  mutate((s) => {
+    if (!canManageTeam(member(s, s.meId))) return;
+    const r = s.roles.find((x) => x.id === id); if (!r) return;
+    s.roles = s.roles.filter((x) => x.id !== id);
+    s.members.forEach((m) => { if (m.roleId === id) m.roleId = null; applyRole(s, m); });
+    log(s, "role.deleted", r.name);
+  });
+};
+
+let settingsTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingSettings: Partial<State["settings"]> = {};
+export const setSettings = (patch: Partial<State["settings"]>) => {
+  mutate((s) => {
+    if (!canDo(s, "assignment.manage")) return;
+    if (!isLive()) log(s, "assignment.rules_changed", "Assignment rules", JSON.stringify(s.settings), JSON.stringify({ ...s.settings, ...patch }));
+    Object.assign(s.settings, patch);
+  });
+  if (!isLive()) return;
+  // inputs fire on every keystroke: batch and save after a short pause
+  pendingSettings = { ...pendingSettings, ...patch };
+  clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(() => { const p = pendingSettings; pendingSettings = {}; void remote("/workspace", "PATCH", { settings: p }, "Assignment rules saved"); }, 700);
+};
 
 /* ---------- auth ---------- */
-export const loginAs = (memberId: string) => mutate((s) => { s.meId = memberId; });
-export const logout = () => mutate((s) => { s.meId = null; });
-export function loginWithPassword(email: string, password: string): boolean {
-  const m = state.members.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
-  if (!m || password !== "demo1234") return false; loginAs(m.id); return true;
+export const loginAs = (memberId: string) => { if (!isLive()) mutate((s) => { s.meId = memberId; }); };
+export async function logout() {
+  if (isLive()) {
+    const { supabase } = await import("./supabase");
+    await supabase.auth.signOut();
+    hydrate();
+  }
+  mutate((s) => { s.meId = null; });
 }
-export const signup = (company: string, name: string, email: string) => { state = blankWorkspace(company, name, email); save(); emit(); };
 export const setMemberCalendar = (id: string, v: Member["calendar"]) => mutate((s) => { const m = member(s, id); if (m) m.calendar = v; });
 
 /* ---------- CRM ---------- */
@@ -218,7 +387,7 @@ export const setOppCustom = (oppId: string, fieldId: string, value: string) => m
   const o = s.opps.find((x) => x.id === oppId); const f = s.fields.find((x) => x.id === fieldId); if (!o || !f || !canDo(s, "crm.edit")) return;
   act(s, { contactId: o.contactId, oppId, type: "field", text: `${f.name}: ${o.custom[fieldId] || "empty"} → ${value || "empty"}` }); o.custom[fieldId] = value;
 });
-export const setOppValue = (oppId: string, value: number) => mutate((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "crm.edit") || !canDo(s, "value.view")) return; act(s, { contactId: o.contactId, oppId, type: "field", text: `Value: ${o.value} → ${value}` }); o.value = value; });
+export const setOppValue = (oppId: string, value: number) => mutate((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "crm.edit") || !canDo(s, "values.view")) return; act(s, { contactId: o.contactId, oppId, type: "field", text: `Value: ${o.value} → ${value}` }); o.value = value; });
 export const setOppOwner = (oppId: string, ownerId: string) => mutate((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "assignment.manage")) return; act(s, { contactId: o.contactId, oppId, type: "assignment", text: `Owner → ${nameOf(s, ownerId)}` }); o.ownerId = ownerId; });
 export function moveOpp(oppId: string, stageId: string): { ok: boolean; error?: string } {
   let res: { ok: boolean; error?: string } = { ok: true };
@@ -235,7 +404,7 @@ export function moveOpp(oppId: string, stageId: string): { ok: boolean; error?: 
 }
 
 /* ---------- pipeline & fields config ---------- */
-const needCfg = (s: State) => canDo(s, "config.manage");
+const needCfg = (s: State) => canDo(s, "pipelines.manage");
 export const addPipeline = (name: string) => mutate((s) => { if (!needCfg(s)) return; s.pipelines.push({ id: uid("pl"), name, stages: [{ id: uid("st"), name: "New", kind: "open", required: [] }, { id: uid("st"), name: "Won", kind: "won", required: [] }, { id: uid("st"), name: "Lost", kind: "lost", required: [] }] }); log(s, "pipeline.created", name); });
 export const addStage = (pid: string, name: string) => mutate((s) => { if (!needCfg(s)) return; const p = s.pipelines.find((x) => x.id === pid); if (!p) return; const idx = p.stages.findIndex((x) => x.kind !== "open"); p.stages.splice(idx < 0 ? p.stages.length : idx, 0, { id: uid("st"), name, kind: "open", required: [] }); log(s, "pipeline.stage_added", `${p.name} / ${name}`); });
 export const renameStage = (pid: string, sid: string, name: string) => mutate((s) => { if (!needCfg(s)) return; const st = s.pipelines.find((x) => x.id === pid)?.stages.find((x) => x.id === sid); if (!st || !name.trim()) return; log(s, "pipeline.stage_renamed", st.name, st.name, name); st.name = name; });
@@ -352,7 +521,10 @@ export const disconnectIntegration = (k: IntegrationKey) => mutate((s) => { if (
 
 /* ---------- misc ---------- */
 export const markNotificationsRead = () => mutate((s) => { s.notifications.forEach((n) => { if (n.userId === s.meId) n.read = true; }); });
-export const toggleTile = (id: string) => mutate((s) => { if (!s.meId) return; const h = (s.hiddenTiles[s.meId] ??= []); const i = h.indexOf(id); if (i >= 0) h.splice(i, 1); else h.push(id); });
+export const toggleTile = (id: string) => {
+  mutate((s) => { if (!s.meId) return; const h = (s.hiddenTiles[s.meId] ??= []); const i = h.indexOf(id); if (i >= 0) h.splice(i, 1); else h.push(id); });
+  if (isLive() && state.meId) void remote("/me", "PATCH", { hiddenTiles: state.hiddenTiles[state.meId] ?? [] });
+};
 
 /* ---------- derived ---------- */
 export function recoveryItems(s: State) {
@@ -371,5 +543,8 @@ export function recoveryItems(s: State) {
 }
 export const todayStart = () => startOfDay();
 export { defaultSettings };
-export const setMyNotifyDest = (dest: string) => mutate((s) => { const m = member(s, s.meId); if (m) { m.notifyDest = dest; log(s, "notification.destination_changed", m.name); } });
+export const setMyNotifyDest = (dest: string) => {
+  if (isLive()) { void remote("/me", "PATCH", { notifyDest: dest }, "Alert destination saved"); return; }
+  mutate((s) => { const m = member(s, s.meId); if (m) { m.notifyDest = dest; log(s, "notification.destination_changed", m.name); } });
+};
 export const simulateDuplicateWebhook = (phone: string) => { simulateIncoming(phone, "Duplicate delivery test", "SMDUP0001"); simulateIncoming(phone, "Duplicate delivery test", "SMDUP0001"); };

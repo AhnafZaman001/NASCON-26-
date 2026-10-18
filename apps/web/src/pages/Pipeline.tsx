@@ -9,7 +9,7 @@ export default function Pipeline() {
   const { s, can } = useApp(); const [pid, setPid] = useState(s.pipelines[0]?.id ?? ""); const [drag, setDrag] = useState<string | null>(null);
   const [open, setOpen] = useState(false); const [f, setF] = useState({ contactId: "", title: "", value: "" }); const [err, setErr] = useState("");
   const p = s.pipelines.find((x) => x.id === pid) ?? s.pipelines[0]; if (!p) return null;
-  const seeVal = can("value.view");
+  const seeVal = can("values.view");
   const move = (oppId: string, stageId: string) => { const r = moveOpp(oppId, stageId); if (!r.ok) toast(r.error ?? "Could not move.", "bad"); };
   const create = (e: React.FormEvent) => { e.preventDefault(); if (!f.contactId || !f.title.trim()) { setErr("Choose a contact and give the opportunity a title."); return; } addOpp(f.contactId, p.id, f.title.trim(), Number(f.value) || 0); setOpen(false); setF({ contactId: "", title: "", value: "" }); setErr(""); toast("Opportunity created.", "ok"); };
   return (

@@ -8,7 +8,7 @@ import { Badge, Button, Card, Empty, PageHeader, Select, Stat, toast } from "@/c
 const tone = { paid: "ok", pending: "warn", failed: "bad", expired: "bad", refunded: "neutral" } as const;
 export default function Payments() {
   const { s, me, can, companyWide } = useApp(); if (!me) return null;
-  const v = can("value.view"); const list = s.payments.filter((p) => companyWide || p.requestedBy === me.id);
+  const v = can("values.view"); const list = s.payments.filter((p) => companyWide || p.requestedBy === me.id);
   const collected = list.filter((p) => p.status === "paid").reduce((a, p) => a + p.amount, 0);
   const projected = list.filter((p) => p.status === "pending").reduce((a, p) => a + p.amount, 0);
   const refunded = list.filter((p) => p.status === "refunded").reduce((a, p) => a + p.amount, 0);

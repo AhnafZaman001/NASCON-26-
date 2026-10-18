@@ -22,7 +22,7 @@ export default function ContactPage() {
   const c = s.contacts.find((x) => x.id === id);
   if (!c || !me) return <Empty title="Contact not found" hint="It may have been deleted." />;
   if (!canSeeContact(s, me.id, can("crm.view"), c.id)) return <Empty title="You don't have access to this contact" hint="Ask a manager for CRM view permission." />;
-  const edit = can("crm.edit"); const seeVal = can("value.view");
+  const edit = can("crm.edit"); const seeVal = can("values.view");
   const lead = s.leads.find((l) => l.contactId === c.id);
   const opps = s.opps.filter((o) => o.contactId === c.id);
   const msgs = s.messages.filter((m) => m.contactId === c.id).sort((a, b) => a.at - b.at);

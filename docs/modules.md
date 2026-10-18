@@ -9,8 +9,8 @@ Requirement IDs (F, I, Q) refer to the problem statement. Status reflects `main`
 
 | # | Module | Requirements | DB | UI | API | Depends on |
 |---|--------|--------------|----|----|-----|------------|
-| M0 | Platform foundation | Q6, Q11, Q13, Q14 | ✅ | ✅ | partial | — |
-| M1 | Accounts, roles & permissions | F1.1–F1.6, Q1, Q2 | ✅ 0001, 0008, 0010 | ✅ | — | M0 |
+| M0 | Platform foundation | Q6, Q11, Q13, Q14 | ✅ | ✅ | ✅ auth, me, validation, errors | — |
+| M1 | Accounts, roles & permissions | F1.1–F1.6, Q1, Q2 | ✅ 0001, 0008, 0010, 0014 | ✅ live | ✅ | M0 |
 | M2 | CRM core records | F2.1, F2.7, F2.8 | ✅ 0002, 0004 | ✅ | — | M1 |
 | M3 | CRM customization | F2.2–F2.6 | ✅ 0002, 0013 | ✅ | — | M2 |
 | M4 | Lead engine | F3.1–F3.9, Q5 | ✅ 0003, 0009 | ✅ | — | M1, M2 |

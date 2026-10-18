@@ -15,7 +15,7 @@ export default function Dashboard() {
   const { s, me, can, companyWide } = useApp(); const [cust, setCust] = useState(false); const t = useNow(5000);
   if (!me) return null;
   const hidden = s.hiddenTiles[me.id] ?? []; const show = (k: string) => !hidden.includes(k);
-  const seeVal = can("value.view");
+  const seeVal = can("values.view");
   const myLeads = s.leads.filter((l) => companyWide || l.ownerId === me.id || l.ackedBy === me.id);
   const newToday = myLeads.filter((l) => l.createdAt >= startOfDay()).length;
   const acked = myLeads.filter((l) => l.ackedAt && l.firstAssignedAt && (companyWide || l.ackedBy === me.id));

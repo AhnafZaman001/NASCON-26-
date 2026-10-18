@@ -32,7 +32,9 @@ Before pushing: `npm run build && npm run lint && npm run typecheck` must pass.
 - Routes live in `src/App.tsx`; pages in `src/pages/*.tsx`. Signed-in pages render inside `Shell` via the `AppLayout` route (it redirects to `/login` when logged out).
 - Navigation: `Link to=` / `useNavigate()` / `useSearchParams()` from `react-router-dom`.
 - Import alias `@/` = `apps/web/src`.
-- App state currently lives in a client store (`src/lib/store.ts`, persisted to localStorage, demo seed in `src/lib/seed.ts`). `useApp()` in `src/lib/app.ts` gives `{ s, me, can, isAdmin, companyWide }`; gate UI with `can("perm.name")`.
+- State: `src/lib/store.ts` has two modes. **live** = signed in with Supabase Auth; workspace, members, roles and settings come from `GET /api/me` and every change to them goes through the API. **demo** = sample workspace in localStorage (no account). Modules not yet migrated (CRM, leads, messages...) still keep their data in localStorage per workspace; moving each onto the API is the remaining work (see docs/modules.md). `useApp()` in `src/lib/app.ts` gives `{ s, me, can, isAdmin, companyWide }`; gate UI with `can("perm.name")`.
+- Server calls: `api(path, { method, body })` from `src/lib/api.ts` (adds the Supabase Bearer token). In the store, live actions use `remote()`, which applies the returned workspace payload and toasts errors.
+- Permission keys live in `packages/ui/src/perms.ts` (shared with the API). Do not invent new strings elsewhere.
 - UI primitives: `src/components/ui.tsx` (Button, Card, Stat, Empty, Avatar...). Icons: `lucide-react`.
 - Styling: Tailwind 4 with theme tokens in `src/index.css` (`bg-surface`, `text-muted`, `border-line`, `text-brand`, `text-ok/warn/bad`). Light and dark both supported via CSS vars; don't hardcode colors.
 - Env: only `VITE_*` vars reach the browser (`import.meta.env`). Never put secrets in `apps/web`.
@@ -40,11 +42,14 @@ Before pushing: `npm run build && npm run lint && npm run typecheck` must pass.
 ## Backend (apps/api)
 - Entry `src/index.ts`; routers in `src/routes/`, mounted under `/api/...`.
 - `supabaseAdmin()` (`src/lib/supabase.ts`) is the service-role client and bypasses RLS: always check the caller's workspace and permission before using it.
-- `requireUser` middleware verifies `Authorization: Bearer <supabase access token>` and sets `req.user`.
+- Auth middleware (`src/middleware/auth.ts`): `requireMember` verifies the Bearer token and loads `req.ctx = { user, member: { id, workspaceId, level, roleId }, perms }` (read it with `ctxOf(req)`); then `requirePerm("crm.edit")` or `requireTeamManager`. Always scope queries with `ctx.member.workspaceId`, never a workspace id from the client. Return 404 for ids outside the workspace.
+- Validate every body/param with zod via `parse(Schema, req.body)` (400 with per-field messages). Throw `HttpError(status, message)`; Express 5 forwards async errors to the handler in `src/index.ts`. Unwrap supabase results with `must()`.
+- Writes that should be audited go through SQL functions that call `api_set_actor(actor)` first (see migration 0014, `api_*` functions), because plain PostgREST writes cannot set `app.actor`.
+- Routes so far: `/api/auth/signup`, `/api/me`, `/api/workspace`, `/api/members`, `/api/roles`, `/api/emails`.
 - Local ES imports use the `.ts` extension (`./routes/emails.ts`), run by tsx.
 
 ## Database (Supabase, project ref `bjbwdtlznujrresmhhyv`)
-- Add schema changes as a new numbered file in `supabase/migrations/` (next: `20261018000014_*.sql`; then regenerate `supabase/setup_all.sql`). Never edit an applied migration.
+- Add schema changes as a new numbered file in `supabase/migrations/` (next: `20261018000015_*.sql`; then regenerate `supabase/setup_all.sql`). Never edit an applied migration.
 - Every table has `workspace_id`. Browsers can only READ their own workspace through RLS. All writes go through the API with the service role.
 - New tables need: `enable row level security`, a select policy using `current_workspace_id()` / `has_perm()`, and `grant ... to service_role`.
 - `audit_log` is append-only. Set `select set_config('app.actor', '<member uuid>', true)` before service-role writes so audit rows name the right person.

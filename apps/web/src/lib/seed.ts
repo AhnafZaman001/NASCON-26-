@@ -1,12 +1,13 @@
-import type { State, Integration, Pipeline, Member, Perm } from "./types";
+import { ALL_PERM_KEYS } from "@nascon/ui";
+import type { State, Integration, Pipeline, Member, Perm, Role } from "./types";
 
 const H = 3600_000, D = 24 * H;
-const ALL: Perm[] = ["crm.view", "crm.create", "crm.edit", "crm.delete", "crm.export", "value.view", "assignment.manage", "config.manage", "integrations.manage", "audit.view"];
+const ALL: Perm[] = ALL_PERM_KEYS;
 const emptyInt = (provider: string): Integration => ({ status: "not_connected", lastOk: null, errors: [], provider });
 
 export function emptyState(): State {
   return {
-    hydrated: false, workspace: { id: "ws_0", name: "" }, meId: null, members: [], companies: [], contacts: [],
+    mode: "demo", hydrated: false, roles: [], workspace: { id: "ws_0", name: "" }, meId: null, members: [], companies: [], contacts: [],
     fields: [], pipelines: [], opps: [], leads: [], messages: [], payments: [], appointments: [], activity: [],
     audit: [], notifications: [],
     integrations: { messaging: emptyInt("Twilio WhatsApp Sandbox"), payments: emptyInt("Stripe (test mode)"), calendar: emptyInt("Google Calendar (OAuth 2.0)"), notifications: emptyInt("Slack") },
@@ -47,9 +48,9 @@ export const defaultFields = (): State["fields"] => [
 export function blankWorkspace(company: string, name: string, email: string): State {
   const s = emptyState();
   const t = Date.now();
-  const owner: Member = { id: "m_owner", name, email, level: "owner", roleName: "Owner", perms: ALL, status: "available", notifyDest: email, calendar: "none", tz: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  const owner: Member = { id: "m_owner", name, email, level: "owner", roleId: null, roleName: "Owner", perms: ALL, status: "available", notifyDest: email, calendar: "none", tz: Intl.DateTimeFormat().resolvedOptions().timeZone };
   s.hydrated = true; s.workspace = { id: "ws_" + t.toString(36), name: company }; s.meId = owner.id;
-  s.members = [owner]; s.pipelines = defaultPipelines(); s.fields = defaultFields();
+  s.members = [owner]; s.roles = defaultRoles(); s.pipelines = defaultPipelines(); s.fields = defaultFields();
   s.settings.managerId = owner.id; s.settings.backupId = owner.id;
   s.audit.push({ id: "au_0", at: t, actor: owner.id, type: "workspace.created", target: company });
   return s;
@@ -59,16 +60,19 @@ export function makeSeed(): State {
   const t = Date.now();
   const s = emptyState();
   const tz = "Asia/Karachi";
-  const mk = (id: string, name: string, level: Member["level"], roleName: string, perms: Perm[], status: Member["status"], cal: Member["calendar"]): Member =>
-    ({ id, name, email: name.split(" ")[0].toLowerCase() + "@skyline.example", level, roleName, perms, status, notifyDest: "@" + name.split(" ")[0].toLowerCase(), calendar: cal, tz });
+  const roles = demoRoles(); s.roles = roles;
+  const mk = (id: string, name: string, level: Member["level"], roleId: string | null, status: Member["status"], cal: Member["calendar"]): Member => {
+    const role = roles.find((r) => r.id === roleId);
+    return { id, name, email: name.split(" ")[0].toLowerCase() + "@skyline.example", level, roleId, roleName: level === "owner" ? "Owner" : role?.name ?? "No role", perms: level === "owner" ? ALL : role?.perms ?? [], status, notifyDest: "@" + name.split(" ")[0].toLowerCase(), calendar: cal, tz };
+  };
   s.hydrated = true; s.workspace = { id: "ws_demo", name: "Skyline Realty" }; s.meId = null;
   s.members = [
-    mk("m_owner", "Sana Malik", "owner", "Owner", ALL, "available", "connected"),
-    mk("m_admin", "Hamza Qureshi", "admin", "Admin", ALL.filter((p) => p !== "audit.view" || true), "available", "connected"),
-    mk("m_mgr", "Areeba Khan", "user", "Sales Manager", ["crm.view", "crm.create", "crm.edit", "crm.export", "value.view", "assignment.manage", "audit.view"], "available", "needs_reconnect"),
-    mk("m_bilal", "Bilal Ahmed", "user", "Sales Agent", ["crm.view", "crm.create", "crm.edit"], "available", "connected"),
-    mk("m_zoya", "Zoya Siddiqui", "user", "Sales Agent", ["crm.view", "crm.create", "crm.edit", "value.view"], "busy", "none"),
-    mk("m_usman", "Usman Tariq", "user", "Support", ["crm.view", "crm.edit"], "offline", "none"),
+    mk("m_owner", "Sana Malik", "owner", null, "available", "connected"),
+    mk("m_admin", "Hamza Qureshi", "admin", "r_admin", "available", "connected"),
+    mk("m_mgr", "Areeba Khan", "user", "r_mgr", "available", "needs_reconnect"),
+    mk("m_bilal", "Bilal Ahmed", "user", "r_agent", "available", "connected"),
+    mk("m_zoya", "Zoya Siddiqui", "user", "r_senior", "busy", "none"),
+    mk("m_usman", "Usman Tariq", "user", "r_support", "offline", "none"),
   ];
   s.settings.managerId = "m_mgr"; s.settings.backupId = "m_admin"; s.pipelines = defaultPipelines(); s.fields = defaultFields();
   s.companies = [
@@ -138,8 +142,22 @@ export function makeSeed(): State {
   s.lists = [{ id: "sl1", name: "VIP investors", criteria: [{ field: "tag", value: "vip" }, { field: "tag", value: "investor" }, { field: "createdDays", value: "30" }] }];
   s.audit = [
     { id: "au1", at: t - 6 * H, actor: "m_admin", type: "pipeline.stage_renamed", target: "Sales / Proposal", before: "Offer", after: "Proposal" },
-    { id: "au2", at: t - 5 * H, actor: "m_owner", type: "permission.changed", target: "Zoya Siddiqui", before: "no value.view", after: "value.view" },
+    { id: "au2", at: t - 5 * H, actor: "m_owner", type: "permission.changed", target: "Zoya Siddiqui", before: "no values.view", after: "values.view" },
     { id: "au3", at: t - 20 * 60_000, actor: "system", type: "lead.escalated", target: "Kashif Mehmood", before: "Usman Tariq", after: "Bilal Ahmed" },
   ];
   return s;
 }
+
+/** Same three roles bootstrap_workspace() creates for a real workspace (supabase/migrations/0010). */
+export const defaultRoles = (): Role[] => [
+  { id: "r_admin", name: "Admin", perms: ALL },
+  { id: "r_manager", name: "Manager", perms: ["crm.view", "crm.create", "crm.edit", "crm.export", "values.view", "conversations.view_all", "dashboard.company", "leads.manage"] },
+  { id: "r_sales", name: "Sales", perms: ["crm.view", "crm.create", "crm.edit"] },
+];
+const demoRoles = (): Role[] => [
+  { id: "r_admin", name: "Admin", perms: ALL },
+  { id: "r_mgr", name: "Sales Manager", perms: ["crm.view", "crm.create", "crm.edit", "crm.export", "values.view", "assignment.manage", "audit.view"] },
+  { id: "r_agent", name: "Sales Agent", perms: ["crm.view", "crm.create", "crm.edit"] },
+  { id: "r_senior", name: "Senior Agent", perms: ["crm.view", "crm.create", "crm.edit", "values.view"] },
+  { id: "r_support", name: "Support", perms: ["crm.view", "crm.edit"] },
+];

@@ -1,23 +1,12 @@
 export type Level = "owner" | "admin" | "user";
-export type Perm =
-  | "crm.view" | "crm.create" | "crm.edit" | "crm.delete" | "crm.export"
-  | "value.view" | "assignment.manage" | "integrations.manage" | "audit.view" | "config.manage";
-export const ALL_PERMS: { key: Perm; label: string }[] = [
-  { key: "crm.view", label: "View CRM records" },
-  { key: "crm.create", label: "Create CRM records" },
-  { key: "crm.edit", label: "Edit CRM records" },
-  { key: "crm.delete", label: "Delete CRM records" },
-  { key: "crm.export", label: "Export CRM records" },
-  { key: "value.view", label: "See opportunity values" },
-  { key: "assignment.manage", label: "Manage assignment rules & reassign" },
-  { key: "config.manage", label: "Customize pipelines & fields" },
-  { key: "integrations.manage", label: "Manage integrations" },
-  { key: "audit.view", label: "View audit log" },
-];
+import { PERMISSIONS, type Perm } from "@nascon/ui";
+export type { Perm };
+export const ALL_PERMS = PERMISSIONS;
 export type Availability = "available" | "busy" | "leave" | "offline";
 
+export interface Role { id: string; name: string; perms: Perm[] }
 export interface Member {
-  id: string; name: string; email: string; level: Level; roleName: string;
+  id: string; name: string; email: string; level: Level; roleId: string | null; roleName: string;
   perms: Perm[]; status: Availability; notifyDest: string; calendar: "connected" | "needs_reconnect" | "none"; tz: string;
 }
 export interface Company { id: string; name: string }
@@ -77,7 +66,9 @@ export interface Settings {
   ackedOnAbsence: "keep" | "reassign"; levels: LevelCfg[];
 }
 export interface State {
-  hydrated: boolean; workspace: { id: string; name: string }; meId: string | null;
+  /** demo = sample data in this browser; live = signed in with Supabase, team data from the API */
+  mode: "demo" | "live";
+  hydrated: boolean; roles: Role[]; workspace: { id: string; name: string }; meId: string | null;
   members: Member[]; companies: Company[]; contacts: Contact[]; fields: CustomField[];
   pipelines: Pipeline[]; opps: Opportunity[]; leads: Lead[]; messages: Message[]; payments: Payment[];
   appointments: Appointment[]; activity: Activity[]; audit: AuditEntry[]; notifications: AppNotification[];

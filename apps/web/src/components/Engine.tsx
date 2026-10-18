@@ -1,12 +1,25 @@
 import { useEffect, useRef } from "react";
-import { hydrate, tick, useStore } from "@/lib/store";
+import { bootFromSession, getState, hydrate, setFeedback, tick, useStore } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 import { toast, ToastHost } from "./ui";
 
-/** Boots the store, runs the escalation timer, and surfaces new notifications live (Q11). */
+/**
+ * Boots the app: a Supabase session loads the real workspace from the API (live mode), otherwise the
+ * demo workspace from this browser. Runs the escalation timer and surfaces new notifications live (Q11).
+ */
 export default function Engine({ children }: { children: React.ReactNode }) {
   const s = useStore();
   const seen = useRef<string | null>(null);
-  useEffect(() => { hydrate(); const i = setInterval(tick, 1000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    setFeedback({ error: (m) => toast(m, "bad"), ok: (m) => toast(m, "ok") });
+    void bootFromSession().then((live) => { if (!live) hydrate(); });
+    // Session ended elsewhere (signed out in another tab, user removed, token revoked) -> back to the login screen.
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT" && getState().mode === "live") hydrate();
+    });
+    const i = setInterval(tick, 1000);
+    return () => { clearInterval(i); data.subscription.unsubscribe(); };
+  }, []);
   useEffect(() => {
     if (!s.hydrated || !s.meId) return;
     const mine = s.notifications.filter((n) => n.userId === s.meId);

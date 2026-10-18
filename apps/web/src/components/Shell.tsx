@@ -28,7 +28,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     { href: "/calendar", label: "Calendar", icon: CalendarDays, show: true },
     { href: "/integrations", label: "Integrations", icon: Plug, show: can("integrations.manage") || isAdmin },
     { href: "/audit", label: "Audit log", icon: ScrollText, show: can("audit.view") },
-    { href: "/settings", label: "Settings", icon: Settings, show: isAdmin || can("config.manage") || can("assignment.manage") },
+    { href: "/settings", label: "Settings", icon: Settings, show: isAdmin || can("pipelines.manage") || can("assignment.manage") || can("users.manage") },
   ].filter((n) => n.show);
 
   const sidebar = (
@@ -44,13 +44,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </Link>
         );
       })}
-      <div className="mt-auto space-y-2 rounded-lg border border-line p-2 text-xs text-muted">
+      {s.mode === "demo" ? <div className="mt-auto space-y-2 rounded-lg border border-line p-2 text-xs text-muted">
         <p className="font-medium text-fg">Demo: switch user</p>
         <Select aria-label="Switch demo user" value={me.id} onChange={(e) => loginAs(e.target.value)} className="!py-1.5 !text-xs">
           {s.members.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.roleName})</option>)}
         </Select>
         <p>Tests permissions and live escalation without logging out.</p>
-      </div>
+      </div> : <p className="mt-auto px-2 text-xs text-muted">Signed in as {me.email}</p>}
     </nav>
   );
 
@@ -83,7 +83,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               )}
             </div>
             <div className="hidden items-center gap-2 sm:flex"><Avatar name={me.name} /><div className="text-xs leading-tight"><p className="font-medium">{me.name}</p><p className="text-muted">{me.roleName}</p></div></div>
-            <button aria-label="Log out" title="Log out" onClick={() => { logout(); router("/login", { replace: true }); }} className="rounded-lg p-2 hover:bg-surface2"><LogOut size={18} /></button>
+            <button aria-label="Log out" title="Log out" onClick={() => { void logout().then(() => router("/login", { replace: true })); }} className="rounded-lg p-2 hover:bg-surface2"><LogOut size={18} /></button>
           </div>
         </header>
         <main className="mx-auto max-w-7xl p-3 sm:p-5">{children}</main>

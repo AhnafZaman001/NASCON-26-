@@ -11,7 +11,7 @@ export default function Contacts() {
   const { s, me, can } = useApp(); const [q, setQ] = useState(""); const [crit, setCrit] = useState<Criterion[]>([]); const [page, setPage] = useState(0);
   const [open, setOpen] = useState(false); const [f, setF] = useState({ name: "", phone: "", email: "", companyId: "" }); const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false); const [listName, setListName] = useState("");
-  const canView = can("crm.view"); const seeVal = can("value.view");
+  const canView = can("crm.view"); const seeVal = can("values.view");
   const all = useMemo(() => s.contacts.filter((c) => canSeeContact(s, me?.id ?? null, canView, c.id)), [s, me, canView]);
   const rows = useMemo(() => all.filter((c) => (!q || (c.name + c.phone + c.email).toLowerCase().includes(q.toLowerCase())) && matchesCriteria(s, c, crit)), [all, q, crit, s]);
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)); const cur = Math.min(page, pages - 1); const shown = rows.slice(cur * PAGE, cur * PAGE + PAGE);
