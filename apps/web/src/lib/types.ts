@@ -9,7 +9,7 @@ export interface Member {
   id: string; name: string; email: string; level: Level; roleId: string | null; roleName: string;
   perms: Perm[]; status: Availability; notifyDest: string; calendar: "connected" | "needs_reconnect" | "none"; tz: string;
 }
-export interface Company { id: string; name: string }
+export interface Company { id: string; name: string; domain?: string | null; industry?: string | null }
 export type FieldType = "text" | "number" | "date" | "dropdown" | "checkbox";
 export interface CustomField {
   id: string; name: string; type: FieldType; entity: "contact" | "opportunity";
@@ -20,10 +20,13 @@ export interface Pipeline { id: string; name: string; stages: Stage[] }
 export interface Contact {
   id: string; name: string; phone: string; email: string; companyId: string | null;
   tags: string[]; optedOut: boolean; custom: Record<string, string>; createdAt: number; source: string;
+  ownerId?: string | null;
 }
 export interface Opportunity {
   id: string; title: string; contactId: string; pipelineId: string; stageId: string;
   value: number; custom: Record<string, string>; ownerId: string | null; createdAt: number;
+  /** live mode: server row version for optimistic locking; value masked when the user lacks values.view */
+  version?: number; valueHidden?: boolean; currency?: string; paymentStatus?: string;
 }
 export interface LeadHistory { at: number; from: string | null; to: string | null; kind: "assign" | "escalate" | "reassign" | "acknowledge"; reason: string }
 export interface Lead {

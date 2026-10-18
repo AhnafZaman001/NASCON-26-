@@ -11,7 +11,7 @@ import { blankWorkspace, defaultSettings, emptyState, makeSeed } from "./seed";
 import type { ServerWorkspace } from "./api";
 import type {
   Activity, Appointment, Availability, Contact, Criterion, CustomField, FieldType, IntegrationKey, Lead,
-  Level, Member, Perm, State,
+  Level, Member, Opportunity, Perm, State,
 } from "./types";
 
 /*
@@ -84,6 +84,7 @@ function bootLive(p: ServerWorkspace) {
   state = { ...base, mode: "live", hydrated: true };
   applyServer(p);
   listenStorage();
+  void syncCrm();
 }
 
 /** If a Supabase session exists, load the workspace from the API. Returns false to fall back to demo mode. */
@@ -119,6 +120,54 @@ async function remote<T extends ServerWorkspace>(path: string, method: string, b
   }
 }
 
+/* ---------- live CRM (M2): companies, contacts, opportunities, pipelines, fields, activity ---------- */
+type CrmSnapshot = Pick<State, "companies" | "contacts" | "opps" | "pipelines" | "fields" | "activity">;
+let crmWriting = false;
+/** New record ids: UUIDs in live mode so the optimistic local copy and the server row share one id. */
+const rid = (prefix: string) => (isLive() && typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : uid(prefix));
+
+function applyCrm(d: CrmSnapshot) {
+  const n = structuredClone(state);
+  n.companies = d.companies; n.contacts = d.contacts; n.opps = d.opps; n.pipelines = d.pipelines; n.fields = d.fields;
+  // server history + local-only entries from modules not migrated yet (messages, payments, leads...)
+  const local = n.activity.filter((a) => !a.id.startsWith("srv_") && !a.id.startsWith("tmp_"));
+  n.activity = [...d.activity, ...local].sort((a, b) => b.at - a.at).slice(0, 2000);
+  state = n; save(); emit();
+}
+
+export async function syncCrm() {
+  if (!isLive()) return;
+  const { api, ApiError } = await import("./api");
+  try { applyCrm(await api<CrmSnapshot>("/crm")); }
+  catch (e) {
+    if (e instanceof ApiError && e.status === 403) applyCrm({ companies: [], contacts: [], opps: [], pipelines: state.pipelines, fields: state.fields, activity: [] });
+    else feedback.error(e instanceof Error ? e.message : "Could not load CRM records.");
+  }
+}
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(() => void syncCrm(), 400); };
+
+/** Optimistic local change (with placeholder activity), then the server write; on failure resync to undo. */
+function crmLocal(fn: (s: State) => void) { crmWriting = isLive(); try { mutate(fn); } finally { crmWriting = false; } }
+async function crmRemote(path: string, method: string, body?: unknown, okMsg?: string) {
+  const { api } = await import("./api");
+  try {
+    const r = await api<{ contact?: Contact; opportunity?: Opportunity; company?: State["companies"][number] }>(path, { method, body });
+    // apply the saved row right away (new opportunity version etc.); activity arrives with the sync
+    if (r.opportunity || r.contact || r.company) mutate((s) => {
+      if (r.opportunity) s.opps = s.opps.map((o) => (o.id === r.opportunity!.id ? r.opportunity! : o));
+      if (r.contact) s.contacts = s.contacts.map((c) => (c.id === r.contact!.id ? r.contact! : c));
+      if (r.company) s.companies = s.companies.map((c) => (c.id === r.company!.id ? r.company! : c));
+    });
+    if (okMsg) feedback.ok(okMsg);
+    return true;
+  } catch (e) {
+    feedback.error(e instanceof Error ? e.message : "Couldn't save. Your change was undone.");
+    return false;
+  } finally { scheduleSync(); }
+}
+const oppVersion = (id: string) => state.opps.find((o) => o.id === id)?.version ?? 1;
+
 export async function signIn(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
   const { supabase } = await import("./supabase");
   const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -143,8 +192,9 @@ export const nameOf = (s: State, id: string | null | undefined) => (id === "syst
 const canDo = (s: State, p: Perm) => { const me = member(s, s.meId); return !!me && (me.level === "owner" || me.perms.includes(p)); };
 const log = (s: State, type: string, target: string, before?: string, after?: string, actor?: string) =>
   s.audit.unshift({ id: uid("au"), at: now(), actor: actor ?? s.meId ?? "system", type, target, before, after });
+// During a live CRM write the server records the real activity; the local copy is a placeholder (tmp_) replaced on sync.
 const act = (s: State, a: Omit<Activity, "id" | "at" | "actor"> & { actor?: string }) =>
-  s.activity.unshift({ id: uid("ac"), at: now(), actor: a.actor ?? s.meId ?? "system", ...a });
+  s.activity.unshift({ id: crmWriting ? uid("tmp") : uid("ac"), at: now(), actor: a.actor ?? s.meId ?? "system", ...a });
 const sync = (s: State, integration: IntegrationKey, dir: "in" | "out", result: "ok" | "failed" | "rejected" | "duplicate", ref: string, note: string) => {
   s.sync.unshift({ id: uid("sy"), at: now(), integration, dir, result, ref, note });
   const i = s.integrations[integration];
@@ -225,19 +275,28 @@ export const reassignLead = (leadId: string, toId: string) => mutate((s) => {
   if (!canDo(s, "assignment.manage")) return;
   const l = s.leads.find((x) => x.id === leadId); const m = member(s, toId); if (l && m) place(s, l, m, "reassign", `Manually reassigned by ${nameOf(s, s.meId)}`);
 });
-export const createManualLead = (name: string, phone: string, email: string, source: string) => mutate((s) => {
-  if (!canDo(s, "crm.create")) return;
-  let c = s.contacts.find((x) => x.phone === phone && phone);
-  if (!c) { c = { id: uid("c"), name, phone, email, companyId: null, tags: [], optedOut: false, custom: {}, createdAt: now(), source }; s.contacts.unshift(c); }
-  newLead(s, c.id, source);
-});
-/** Public form capture: no session needed. */
-export const captureLead = (name: string, phone: string, email: string, note: string) => mutate((s) => {
-  let c = s.contacts.find((x) => x.phone === phone && phone);
-  if (!c) { c = { id: uid("c"), name, phone, email, companyId: null, tags: [], optedOut: false, custom: {}, createdAt: now(), source: "web form" }; s.contacts.unshift(c); }
-  if (note) act(s, { contactId: c.id, type: "note", actor: "system", text: `Web form: ${note}` });
-  newLead(s, c.id, "web form");
-});
+/** Find a contact by phone, or create it (also on the server in live mode, so the lead points at a real record). */
+function contactForLead(name: string, phone: string, email: string, source: string): { id: string; saved: Promise<boolean> } {
+  const existing = state.contacts.find((x) => x.phone === phone && phone);
+  if (existing) return { id: existing.id, saved: Promise.resolve(true) };
+  const id = rid("c");
+  crmLocal((s) => { s.contacts.unshift({ id, name, phone, email, companyId: null, tags: [], optedOut: false, custom: {}, createdAt: now(), source, ownerId: null }); });
+  const saved = isLive() ? crmRemote("/contacts", "POST", { id, name, phone, email, source }) : Promise.resolve(true);
+  return { id, saved };
+}
+export const createManualLead = (name: string, phone: string, email: string, source: string) => {
+  if (!canDo(state, "crm.create")) return;
+  const { id: cid } = contactForLead(name, phone, email, source);
+  mutate((s) => { newLead(s, cid, source); });
+};
+export const captureLead = (name: string, phone: string, email: string, note: string) => {
+  const { id: cid, saved } = contactForLead(name, phone, email, "web form");
+  mutate((s) => {
+    if (note) act(s, { contactId: cid, type: "note", actor: "system", text: `Web form: ${note}` });
+    newLead(s, cid, "web form");
+  });
+  if (note && isLive()) void saved.then((ok) => ok && crmRemote(`/contacts/${cid}/notes`, "POST", { text: `Web form: ${note}` }));
+};
 
 /* ---------- availability & team ---------- */
 /** Moves this member's local leads to someone else (local copy of what set_member_status does in SQL). */
@@ -357,41 +416,90 @@ export async function logout() {
 export const setMemberCalendar = (id: string, v: Member["calendar"]) => mutate((s) => { const m = member(s, id); if (m) m.calendar = v; });
 
 /* ---------- CRM ---------- */
-export const addContact = (c: Pick<Contact, "name" | "phone" | "email" | "companyId">) => { let id = ""; mutate((s) => { if (!canDo(s, "crm.create")) return; id = uid("c"); s.contacts.unshift({ ...c, id, tags: [], optedOut: false, custom: {}, createdAt: now(), source: "manual" }); log(s, "contact.created", c.name); }); return id; };
-export const updateContact = (id: string, patch: Partial<Contact>) => mutate((s) => {
-  if (!canDo(s, "crm.edit")) return; const c = s.contacts.find((x) => x.id === id); if (!c) return;
-  for (const k of Object.keys(patch) as (keyof Contact)[]) if (JSON.stringify(c[k]) !== JSON.stringify(patch[k]) && k !== "custom") act(s, { contactId: id, type: "field", text: `${k} changed` });
-  Object.assign(c, patch); touch(s, id, "Edited contact");
-});
-export const setContactCustom = (id: string, fieldId: string, value: string) => mutate((s) => {
-  if (!canDo(s, "crm.edit")) return; const c = s.contacts.find((x) => x.id === id); const f = s.fields.find((x) => x.id === fieldId); if (!c || !f) return;
-  act(s, { contactId: id, type: "field", text: `${f.name}: ${c.custom[fieldId] || "empty"} → ${value || "empty"}` }); c.custom[fieldId] = value;
-});
-export const deleteContact = (id: string) => mutate((s) => {
-  if (!canDo(s, "crm.delete")) return; const c = s.contacts.find((x) => x.id === id); if (!c) return;
-  const oppIds = s.opps.filter((o) => o.contactId === id).map((o) => o.id);
-  s.opps = s.opps.filter((o) => o.contactId !== id); s.leads = s.leads.filter((l) => l.contactId !== id); s.messages = s.messages.filter((m) => m.contactId !== id);
-  s.payments = s.payments.filter((p) => p.contactId !== id && !oppIds.includes(p.oppId)); s.appointments = s.appointments.filter((a) => a.contactId !== id); s.activity = s.activity.filter((a) => a.contactId !== id);
-  s.contacts = s.contacts.filter((x) => x.id !== id); log(s, "contact.deleted", c.name);
-});
-export const setOptOut = (id: string, v: boolean) => mutate((s) => { const c = s.contacts.find((x) => x.id === id); if (!c || !canDo(s, "crm.edit")) return; c.optedOut = v; act(s, { contactId: id, type: "message", text: v ? "Marked as opted out of messaging" : "Opt-out removed" }); log(s, "contact.optout", c.name, String(!v), String(v)); });
-export const addTag = (id: string, tag: string) => mutate((s) => { const c = s.contacts.find((x) => x.id === id); if (c && tag && !c.tags.includes(tag) && canDo(s, "crm.edit")) c.tags.push(tag); });
-export const removeTag = (id: string, tag: string) => mutate((s) => { const c = s.contacts.find((x) => x.id === id); if (c && canDo(s, "crm.edit")) c.tags = c.tags.filter((t) => t !== tag); });
-export const addNote = (contactId: string, text: string, oppId?: string) => mutate((s) => { if (!text.trim()) return; act(s, { contactId, oppId, type: "note", text }); touch(s, contactId, "Added note"); });
-export const addOpp = (contactId: string, pipelineId: string, title: string, value: number) => mutate((s) => {
-  if (!canDo(s, "crm.create")) return; const p = s.pipelines.find((x) => x.id === pipelineId); if (!p) return;
-  const o = { id: uid("o"), title, contactId, pipelineId, stageId: p.stages[0].id, value, custom: {}, ownerId: s.meId, createdAt: now() };
-  s.opps.unshift(o); act(s, { contactId, oppId: o.id, type: "stage", text: `Opportunity "${title}" created in ${p.name}` }); touch(s, contactId, "Created opportunity");
-});
-export const setOppCustom = (oppId: string, fieldId: string, value: string) => mutate((s) => {
-  const o = s.opps.find((x) => x.id === oppId); const f = s.fields.find((x) => x.id === fieldId); if (!o || !f || !canDo(s, "crm.edit")) return;
-  act(s, { contactId: o.contactId, oppId, type: "field", text: `${f.name}: ${o.custom[fieldId] || "empty"} → ${value || "empty"}` }); o.custom[fieldId] = value;
-});
-export const setOppValue = (oppId: string, value: number) => mutate((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "crm.edit") || !canDo(s, "values.view")) return; act(s, { contactId: o.contactId, oppId, type: "field", text: `Value: ${o.value} → ${value}` }); o.value = value; });
-export const setOppOwner = (oppId: string, ownerId: string) => mutate((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "assignment.manage")) return; act(s, { contactId: o.contactId, oppId, type: "assignment", text: `Owner → ${nameOf(s, ownerId)}` }); o.ownerId = ownerId; });
+// Each action changes the local copy first (instant UI). In live mode it then saves through the API
+// (server enforces permissions, writes the activity history and audit) and resyncs.
+export const addContact = (c: Pick<Contact, "name" | "phone" | "email" | "companyId">) => {
+  let id = "";
+  crmLocal((s) => { if (!canDo(s, "crm.create")) return; id = rid("c"); s.contacts.unshift({ ...c, id, tags: [], optedOut: false, custom: {}, createdAt: now(), source: "manual", ownerId: s.meId }); log(s, "contact.created", c.name); });
+  if (id && isLive()) void crmRemote("/contacts", "POST", { id, name: c.name, phone: c.phone, email: c.email, companyId: c.companyId }, `${c.name} added`);
+  return id;
+};
+export const updateContact = (id: string, patch: Partial<Pick<Contact, "name" | "phone" | "email" | "companyId">>) => {
+  crmLocal((s) => {
+    if (!canDo(s, "crm.edit")) return; const c = s.contacts.find((x) => x.id === id); if (!c) return;
+    for (const k of Object.keys(patch) as (keyof typeof patch)[]) if (JSON.stringify(c[k]) !== JSON.stringify(patch[k])) act(s, { contactId: id, type: "field", text: `${k} changed` });
+    Object.assign(c, patch); touch(s, id, "Edited contact");
+  });
+  if (isLive()) void crmRemote(`/contacts/${id}`, "PATCH", patch);
+};
+export const setContactCustom = (id: string, fieldId: string, value: string) => {
+  crmLocal((s) => {
+    if (!canDo(s, "crm.edit")) return; const c = s.contacts.find((x) => x.id === id); const f = s.fields.find((x) => x.id === fieldId); if (!c || !f) return;
+    act(s, { contactId: id, type: "field", text: `${f.name}: ${c.custom[fieldId] || "empty"} → ${value || "empty"}` }); c.custom[fieldId] = value;
+  });
+  if (isLive()) void crmRemote(`/contacts/${id}`, "PATCH", { custom: { [fieldId]: value } });
+};
+export const deleteContact = (id: string) => {
+  crmLocal((s) => {
+    if (!canDo(s, "crm.delete")) return; const c = s.contacts.find((x) => x.id === id); if (!c) return;
+    const oppIds = s.opps.filter((o) => o.contactId === id).map((o) => o.id);
+    s.opps = s.opps.filter((o) => o.contactId !== id); s.leads = s.leads.filter((l) => l.contactId !== id); s.messages = s.messages.filter((m) => m.contactId !== id);
+    s.payments = s.payments.filter((p) => p.contactId !== id && !oppIds.includes(p.oppId)); s.appointments = s.appointments.filter((a) => a.contactId !== id); s.activity = s.activity.filter((a) => a.contactId !== id);
+    s.contacts = s.contacts.filter((x) => x.id !== id); log(s, "contact.deleted", c.name);
+  });
+  if (isLive()) void crmRemote(`/contacts/${id}`, "DELETE", undefined, "Contact deleted");
+};
+export const setOptOut = (id: string, v: boolean) => {
+  crmLocal((s) => { const c = s.contacts.find((x) => x.id === id); if (!c || !canDo(s, "crm.edit")) return; c.optedOut = v; act(s, { contactId: id, type: "message", text: v ? "Marked as opted out of messaging" : "Opt-out removed" }); log(s, "contact.optout", c.name, String(!v), String(v)); });
+  if (isLive()) void crmRemote(`/contacts/${id}`, "PATCH", { optedOut: v });
+};
+const saveTags = (id: string) => { const c = state.contacts.find((x) => x.id === id); if (c && isLive()) void crmRemote(`/contacts/${id}`, "PATCH", { tags: c.tags }); };
+export const addTag = (id: string, tag: string) => {
+  const t = tag.trim().toLowerCase();
+  crmLocal((s) => { const c = s.contacts.find((x) => x.id === id); if (c && t && !c.tags.includes(t) && canDo(s, "crm.edit")) c.tags.push(t); });
+  saveTags(id);
+};
+export const removeTag = (id: string, tag: string) => {
+  crmLocal((s) => { const c = s.contacts.find((x) => x.id === id); if (c && canDo(s, "crm.edit")) c.tags = c.tags.filter((t) => t !== tag); });
+  saveTags(id);
+};
+export const addNote = (contactId: string, text: string, oppId?: string) => {
+  if (!text.trim()) return;
+  crmLocal((s) => { act(s, { contactId, oppId, type: "note", text }); touch(s, contactId, "Added note"); });
+  if (isLive()) void crmRemote(`/contacts/${contactId}/notes`, "POST", { text, ...(oppId ? { oppId } : {}) });
+};
+export const addOpp = (contactId: string, pipelineId: string, title: string, value: number) => {
+  let id = "";
+  crmLocal((s) => {
+    if (!canDo(s, "crm.create")) return; const p = s.pipelines.find((x) => x.id === pipelineId); if (!p?.stages[0]) return;
+    id = rid("o");
+    s.opps.unshift({ id, title, contactId, pipelineId, stageId: p.stages[0].id, value, custom: {}, ownerId: s.meId, createdAt: now(), version: 1 });
+    act(s, { contactId, oppId: id, type: "stage", text: `Opportunity "${title}" created in ${p.name}` }); touch(s, contactId, "Created opportunity");
+  });
+  if (id && isLive()) void crmRemote("/opportunities", "POST", { id, contactId, pipelineId, title, ...(value && canDo(state, "values.view") ? { value } : {}) }, `"${title}" created`);
+};
+export const setOppCustom = (oppId: string, fieldId: string, value: string) => {
+  const version = oppVersion(oppId);
+  crmLocal((s) => {
+    const o = s.opps.find((x) => x.id === oppId); const f = s.fields.find((x) => x.id === fieldId); if (!o || !f || !canDo(s, "crm.edit")) return;
+    act(s, { contactId: o.contactId, oppId, type: "field", text: `${f.name}: ${o.custom[fieldId] || "empty"} → ${value || "empty"}` }); o.custom[fieldId] = value;
+  });
+  if (isLive()) void crmRemote(`/opportunities/${oppId}`, "PATCH", { version, custom: { [fieldId]: value } });
+};
+export const setOppValue = (oppId: string, value: number) => {
+  const version = oppVersion(oppId);
+  crmLocal((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "crm.edit") || !canDo(s, "values.view")) return; act(s, { contactId: o.contactId, oppId, type: "field", text: `Value: ${o.value} → ${value}` }); o.value = value; });
+  if (isLive()) void crmRemote(`/opportunities/${oppId}`, "PATCH", { version, value });
+};
+export const setOppOwner = (oppId: string, ownerId: string) => {
+  const version = oppVersion(oppId);
+  crmLocal((s) => { const o = s.opps.find((x) => x.id === oppId); if (!o || !canDo(s, "assignment.manage")) return; act(s, { contactId: o.contactId, oppId, type: "assignment", text: `Owner → ${nameOf(s, ownerId)}` }); o.ownerId = ownerId; });
+  if (isLive()) void crmRemote(`/opportunities/${oppId}`, "PATCH", { version, ownerId });
+};
 export function moveOpp(oppId: string, stageId: string): { ok: boolean; error?: string } {
   let res: { ok: boolean; error?: string } = { ok: true };
-  mutate((s) => {
+  const version = oppVersion(oppId);
+  crmLocal((s) => {
     if (!canDo(s, "crm.edit")) { res = { ok: false, error: "You don't have permission to edit records." }; return; }
     const o = s.opps.find((x) => x.id === oppId); const p = s.pipelines.find((x) => x.id === o?.pipelineId); const st = p?.stages.find((x) => x.id === stageId);
     if (!o || !p || !st) { res = { ok: false, error: "Stage not found." }; return; }
@@ -400,6 +508,8 @@ export function moveOpp(oppId: string, stageId: string): { ok: boolean; error?: 
     const from = p.stages.find((x) => x.id === o.stageId)?.name; o.stageId = stageId;
     act(s, { contactId: o.contactId, oppId, type: "stage", text: `Moved ${from} → ${st.name}` }); touch(s, o.contactId, "Changed stage");
   });
+  // the server re-checks required fields (opportunity_guard) and the version; a refusal is shown and undone
+  if (res.ok && isLive()) void crmRemote(`/opportunities/${oppId}`, "PATCH", { version, stageId });
   return res;
 }
 

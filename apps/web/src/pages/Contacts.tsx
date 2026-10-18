@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { Download, Plus, Trash2 } from "lucide-react";
 import { useApp, canSeeContact } from "@/lib/app";
+import { download } from "@/lib/api";
 import { addContact, deleteList, matchesCriteria, saveList } from "@/lib/store";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Select, toast } from "@/components/ui";
 import type { Criterion } from "@/lib/types";
@@ -21,6 +22,8 @@ export default function Contacts() {
   const upd = (i: number, patch: Partial<Criterion>) => { setCrit(crit.map((c, j) => (j === i ? { ...c, ...patch } : c))); setPage(0); };
 
   const exportCsv = () => {
+    // live: the server builds the file and masks values it shouldn't include (F1.4)
+    if (s.mode === "live") { download("/export/contacts.csv", "contacts.csv").then(() => toast("Export ready.", "ok"), (e: Error) => toast(e.message, "bad")); return; }
     const esc = (v: string | number) => `"${String(v).replace(/"/g, '""').replace(/^[=+\-@]/, "'$&")}"`; // CSV-injection safe
     const lines = [["Name", "Phone", "Email", "Company", "Tags", "Open value"].join(",")];
     for (const c of rows) { const v = s.opps.filter((o) => o.contactId === c.id).reduce((a, o) => a + o.value, 0); lines.push([c.name, c.phone, c.email, co(c.companyId), c.tags.join(";"), seeVal ? v : "hidden"].map(esc).join(",")); }

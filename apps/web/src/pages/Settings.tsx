@@ -10,6 +10,7 @@ function PipelineTab() {
   const [fd, setFd] = useState({ name: "", type: "text" as FieldType, entity: "opportunity" as "contact" | "opportunity", options: "" }); const [del, setDel] = useState<{ sid: string; to: string; err: string } | null>(null);
   const p = s.pipelines.find((x) => x.id === pid) ?? s.pipelines[0]; const ok = can("pipelines.manage");
   if (!ok) return <Empty title="You can't customize pipelines" hint="Ask an Admin for the 'customize pipelines & fields' permission." />;
+  if (s.mode === "live") return <Empty title="Pipeline and field editing is moving to the server" hint="Your pipelines, stages and fields are loaded from the database. Editing them here comes with the next update (M3)." />;
   const fields = s.fields.filter((f) => f.entity === "opportunity" && f.pipelineId === p?.id);
   return (
     <div className="grid gap-4 lg:grid-cols-2">

@@ -37,3 +37,16 @@ export async function api<T = ServerWorkspace>(path: string, init: { method?: st
   if (!res.ok) throw new ApiError(res.status, json.error ?? `Request failed (${res.status}).`, json.details?.fields);
   return json as T;
 }
+
+/** Download a file from the API (e.g. a CSV export) with the user's token. */
+export async function download(path: string, filename: string) {
+  const { data } = await supabase.auth.getSession();
+  const res = await fetch(`/api${path}`, { headers: data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {} });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, j.error ?? `Download failed (${res.status}).`);
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await res.blob()); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
