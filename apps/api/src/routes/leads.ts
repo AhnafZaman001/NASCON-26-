@@ -53,6 +53,8 @@ const seesAll = (ctx: Ctx) => ctx.member.level !== "user" || can(ctx, "leads.man
 leads.get("/leads", requireMember, async (req, res) => {
   const ctx = ctxOf(req);
   const db = supabaseAdmin();
+  // serverless hosts have no background timer: also run the (row-locked, idempotent) escalation sweep here
+  await db.rpc("escalate_expired_leads");
   let q = db.from("leads")
     .select("id, contact_id, source, status, owner_id, assigned_at, first_assigned_at, ack_deadline, acknowledged_at, escalation_level, escalation_count, recovery_flag, last_action_at, created_at")
     .eq("workspace_id", ctx.member.workspaceId).neq("status", "closed").order("created_at", { ascending: false }).limit(1000);
