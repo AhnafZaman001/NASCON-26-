@@ -12,7 +12,7 @@ Requirement IDs (F, I, Q) refer to the problem statement. Status reflects `main`
 | M0 | Platform foundation | Q6, Q11, Q13, Q14 | ✅ | ✅ | ✅ auth, me, validation, errors | — |
 | M1 | Accounts, roles & permissions | F1.1–F1.6, Q1, Q2 | ✅ 0001, 0008, 0010, 0014 | ✅ live | ✅ | M0 |
 | M2 | CRM core records | F2.1, F2.7, F2.8 | ✅ 0002, 0004, 0015 | ✅ live | ✅ | M1 |
-| M3 | CRM customization | F2.2–F2.6 | ✅ 0002, 0013 | ✅ | — | M2 |
+| M3 | CRM customization | F2.2–F2.6 | ✅ 0002, 0013, 0016 | ✅ live | ✅ | M2 |
 | M4 | Lead engine | F3.1–F3.9, Q5 | ✅ 0003, 0009 | ✅ | — | M1, M2 |
 | M5 | Audit history | F4.1–F4.3 | ✅ 0006 | ✅ live | ✅ | M1 |
 | M6 | Operational dashboard | F5.1–F5.5, Section 7, Q12 | ✅ 0007 | ✅ | — | M2, M4, M8, M9 |

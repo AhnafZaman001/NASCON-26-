@@ -9,6 +9,7 @@ import { members } from "./routes/members.ts";
 import { roles } from "./routes/roles.ts";
 import { audit } from "./routes/audit.ts";
 import { crm } from "./routes/crm.ts";
+import { config } from "./routes/config.ts";
 import { emails } from "./routes/emails.ts";
 
 const app = express();
@@ -26,6 +27,7 @@ app.use("/api/members", members);
 app.use("/api/roles", roles);
 app.use("/api/audit", audit);
 app.use("/api", crm);   // /api/crm, /api/companies, /api/contacts, /api/opportunities, /api/export
+app.use("/api", config);   // /api/pipelines, /api/stages, /api/fields, /api/lists
 app.use("/api/emails", emails);
 
 app.use((_req, res) => void res.status(404).json({ error: "Not found." }));

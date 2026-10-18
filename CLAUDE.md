@@ -45,11 +45,11 @@ Before pushing: `npm run build && npm run lint && npm run typecheck` must pass.
 - Auth middleware (`src/middleware/auth.ts`): `requireMember` verifies the Bearer token and loads `req.ctx = { user, member: { id, workspaceId, level, roleId }, perms }` (read it with `ctxOf(req)`); then `requirePerm("crm.edit")` or `requireTeamManager`. Always scope queries with `ctx.member.workspaceId`, never a workspace id from the client. Return 404 for ids outside the workspace.
 - Validate every body/param with zod via `parse(Schema, req.body)` (400 with per-field messages). Throw `HttpError(status, message)`; Express 5 forwards async errors to the handler in `src/index.ts`. Unwrap supabase results with `must()`.
 - Writes that should be audited go through SQL functions that call `api_set_actor(actor)` first (see migration 0014, `api_*` functions), because plain PostgREST writes cannot set `app.actor`.
-- Routes so far: `/api/auth/signup`, `/api/me`, `/api/workspace`, `/api/members`, `/api/roles`, `/api/audit`, CRM (`/api/crm` snapshot, `/api/companies`, `/api/contacts` + `/notes` + `/timeline`, `/api/opportunities`, `/api/export/*.csv`), `/api/emails`. Routers mounted at `/api` must guard per route (see `allow()` in `routes/crm.ts`), never `router.use`.
+- Routes so far: `/api/auth/signup`, `/api/me`, `/api/workspace`, `/api/members`, `/api/roles`, `/api/audit`, CRM (`/api/crm` snapshot, `/api/companies`, `/api/contacts` + `/notes` + `/timeline`, `/api/opportunities`, `/api/export/*.csv`), config (`/api/pipelines`, `/api/stages`, `/api/fields`, `/api/lists`), `/api/emails`. Routers mounted at `/api` must guard per route (see `allow()` in `routes/crm.ts`), never `router.use`.
 - Local ES imports use the `.ts` extension (`./routes/emails.ts`), run by tsx.
 
 ## Database (Supabase, project ref `bjbwdtlznujrresmhhyv`)
-- Add schema changes as a new numbered file in `supabase/migrations/` (next: `20261018000016_*.sql`; then regenerate `supabase/setup_all.sql`). Never edit an applied migration.
+- Add schema changes as a new numbered file in `supabase/migrations/` (next: `20261018000017_*.sql`; then regenerate `supabase/setup_all.sql`). Never edit an applied migration.
 - Every table has `workspace_id`. Browsers can only READ their own workspace through RLS. All writes go through the API with the service role.
 - New tables need: `enable row level security`, a select policy using `current_workspace_id()` / `has_perm()`, and `grant ... to service_role`.
 - `audit_log` is append-only. Set `select set_config('app.actor', '<member uuid>', true)` before service-role writes so audit rows name the right person.

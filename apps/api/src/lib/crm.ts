@@ -79,7 +79,7 @@ export async function getOwned<T = { id: string }>(ctx: { member: { workspaceId:
 /** Everything the CRM screens need in one call (pipelines, fields, records, recent history). */
 export async function loadCrm(ws: string, seeValues: boolean) {
   const db = supabaseAdmin();
-  const [companies, contacts, opps, pipelines, stages, required, fields, activities] = await Promise.all([
+  const [companies, contacts, opps, pipelines, stages, required, fields, activities, lists] = await Promise.all([
     db.from("companies").select(COMPANY_COLS).eq("workspace_id", ws).order("name").limit(2000),
     db.from("contacts").select(CONTACT_COLS).eq("workspace_id", ws).order("created_at", { ascending: false }).limit(5000),
     db.from("opportunities").select(OPP_COLS).eq("workspace_id", ws).order("created_at", { ascending: false }).limit(5000),
@@ -88,6 +88,7 @@ export async function loadCrm(ws: string, seeValues: boolean) {
     db.from("stage_required_fields").select("stage_id, field_id").eq("workspace_id", ws),
     db.from("field_definitions").select("id, name, type, entity, pipeline_id, options, position").eq("workspace_id", ws).order("position"),
     db.from("activities").select(ACTIVITY_COLS).eq("workspace_id", ws).order("id", { ascending: false }).limit(1000),
+    db.from("saved_lists").select("id, name, filters").eq("workspace_id", ws).order("created_at"),
   ]);
   const st = must(stages) as { id: string; pipeline_id: string; name: string; kind: "open" | "won" | "lost" }[];
   const req = must(required) as { stage_id: string; field_id: string }[];
@@ -105,5 +106,6 @@ export async function loadCrm(ws: string, seeValues: boolean) {
       .filter((f) => f.entity !== "company")
       .map((f) => ({ id: f.id, name: f.name, type: f.type, entity: f.entity, pipelineId: f.pipeline_id, options: Array.isArray(f.options) ? f.options : [] })),
     activity: (must(activities) as ActivityRow[]).map(activityDto),
+    lists: (must(lists) as { id: string; name: string; filters: unknown }[]).map((l) => ({ id: l.id, name: l.name, criteria: Array.isArray(l.filters) ? l.filters : [] })),
   };
 }

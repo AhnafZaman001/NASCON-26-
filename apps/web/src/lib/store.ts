@@ -121,14 +121,14 @@ async function remote<T extends ServerWorkspace>(path: string, method: string, b
 }
 
 /* ---------- live CRM (M2): companies, contacts, opportunities, pipelines, fields, activity ---------- */
-type CrmSnapshot = Pick<State, "companies" | "contacts" | "opps" | "pipelines" | "fields" | "activity">;
+type CrmSnapshot = Pick<State, "companies" | "contacts" | "opps" | "pipelines" | "fields" | "activity" | "lists">;
 let crmWriting = false;
 /** New record ids: UUIDs in live mode so the optimistic local copy and the server row share one id. */
 const rid = (prefix: string) => (isLive() && typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : uid(prefix));
 
 function applyCrm(d: CrmSnapshot) {
   const n = structuredClone(state);
-  n.companies = d.companies; n.contacts = d.contacts; n.opps = d.opps; n.pipelines = d.pipelines; n.fields = d.fields;
+  n.companies = d.companies; n.contacts = d.contacts; n.opps = d.opps; n.pipelines = d.pipelines; n.fields = d.fields; n.lists = d.lists;
   // server history + local-only entries from modules not migrated yet (messages, payments, leads...)
   const local = n.activity.filter((a) => !a.id.startsWith("srv_") && !a.id.startsWith("tmp_"));
   n.activity = [...d.activity, ...local].sort((a, b) => b.at - a.at).slice(0, 2000);
@@ -140,7 +140,7 @@ export async function syncCrm() {
   const { api, ApiError } = await import("./api");
   try { applyCrm(await api<CrmSnapshot>("/crm")); }
   catch (e) {
-    if (e instanceof ApiError && e.status === 403) applyCrm({ companies: [], contacts: [], opps: [], pipelines: state.pipelines, fields: state.fields, activity: [] });
+    if (e instanceof ApiError && e.status === 403) applyCrm({ companies: [], contacts: [], opps: [], pipelines: state.pipelines, fields: state.fields, activity: [], lists: [] });
     else feedback.error(e instanceof Error ? e.message : "Could not load CRM records.");
   }
 }
@@ -514,16 +514,38 @@ export function moveOpp(oppId: string, stageId: string): { ok: boolean; error?: 
 }
 
 /* ---------- pipeline & fields config ---------- */
+// Same pattern as CRM: local change first, then (live) the API, which audits and the next sync confirms.
 const needCfg = (s: State) => canDo(s, "pipelines.manage");
-export const addPipeline = (name: string) => mutate((s) => { if (!needCfg(s)) return; s.pipelines.push({ id: uid("pl"), name, stages: [{ id: uid("st"), name: "New", kind: "open", required: [] }, { id: uid("st"), name: "Won", kind: "won", required: [] }, { id: uid("st"), name: "Lost", kind: "lost", required: [] }] }); log(s, "pipeline.created", name); });
-export const addStage = (pid: string, name: string) => mutate((s) => { if (!needCfg(s)) return; const p = s.pipelines.find((x) => x.id === pid); if (!p) return; const idx = p.stages.findIndex((x) => x.kind !== "open"); p.stages.splice(idx < 0 ? p.stages.length : idx, 0, { id: uid("st"), name, kind: "open", required: [] }); log(s, "pipeline.stage_added", `${p.name} / ${name}`); });
-export const renameStage = (pid: string, sid: string, name: string) => mutate((s) => { if (!needCfg(s)) return; const st = s.pipelines.find((x) => x.id === pid)?.stages.find((x) => x.id === sid); if (!st || !name.trim()) return; log(s, "pipeline.stage_renamed", st.name, st.name, name); st.name = name; });
-export const moveStage = (pid: string, sid: string, dir: -1 | 1) => mutate((s) => { if (!needCfg(s)) return; const p = s.pipelines.find((x) => x.id === pid); if (!p) return; const i = p.stages.findIndex((x) => x.id === sid); const j = i + dir; if (i < 0 || j < 0 || j >= p.stages.length) return; [p.stages[i], p.stages[j]] = [p.stages[j], p.stages[i]]; log(s, "pipeline.stage_reordered", p.stages[j].name); });
-export const setStageRequired = (pid: string, sid: string, fieldIds: string[]) => mutate((s) => { if (!needCfg(s)) return; const st = s.pipelines.find((x) => x.id === pid)?.stages.find((x) => x.id === sid); if (!st) return; log(s, "pipeline.required_fields_changed", st.name, st.required.join(","), fieldIds.join(",")); st.required = fieldIds; });
+export const addPipeline = (name: string) => {
+  const ids = { p: rid("pl"), s: [rid("st"), rid("st"), rid("st")] };
+  let ok = false;
+  crmLocal((s) => { if (!needCfg(s)) return; ok = true; s.pipelines.push({ id: ids.p, name, stages: [{ id: ids.s[0], name: "New", kind: "open", required: [] }, { id: ids.s[1], name: "Won", kind: "won", required: [] }, { id: ids.s[2], name: "Lost", kind: "lost", required: [] }] }); log(s, "pipeline.created", name); });
+  if (ok && isLive()) void crmRemote("/pipelines", "POST", { id: ids.p, name, stageIds: ids.s }, `Pipeline "${name}" created`);
+};
+export const addStage = (pid: string, name: string) => {
+  const id = rid("st"); let ok = false;
+  crmLocal((s) => { if (!needCfg(s)) return; const p = s.pipelines.find((x) => x.id === pid); if (!p) return; ok = true; const idx = p.stages.findIndex((x) => x.kind !== "open"); p.stages.splice(idx < 0 ? p.stages.length : idx, 0, { id, name, kind: "open", required: [] }); log(s, "pipeline.stage_added", `${p.name} / ${name}`); });
+  if (ok && isLive()) void crmRemote(`/pipelines/${pid}/stages`, "POST", { id, name });
+};
+export const renameStage = (pid: string, sid: string, name: string) => {
+  let ok = false;
+  crmLocal((s) => { if (!needCfg(s)) return; const st = s.pipelines.find((x) => x.id === pid)?.stages.find((x) => x.id === sid); if (!st || !name.trim()) return; ok = true; log(s, "pipeline.stage_renamed", st.name, st.name, name); st.name = name; });
+  if (ok && isLive()) void crmRemote(`/stages/${sid}`, "PATCH", { name });
+};
+export const moveStage = (pid: string, sid: string, dir: -1 | 1) => {
+  let order: string[] | null = null;
+  crmLocal((s) => { if (!needCfg(s)) return; const p = s.pipelines.find((x) => x.id === pid); if (!p) return; const i = p.stages.findIndex((x) => x.id === sid); const j = i + dir; if (i < 0 || j < 0 || j >= p.stages.length) return; [p.stages[i], p.stages[j]] = [p.stages[j], p.stages[i]]; order = p.stages.map((x) => x.id); log(s, "pipeline.stage_reordered", p.stages[j].name); });
+  if (order && isLive()) void crmRemote(`/pipelines/${pid}/stage-order`, "PUT", { ids: order });
+};
+export const setStageRequired = (pid: string, sid: string, fieldIds: string[]) => {
+  let ok = false;
+  crmLocal((s) => { if (!needCfg(s)) return; const st = s.pipelines.find((x) => x.id === pid)?.stages.find((x) => x.id === sid); if (!st) return; ok = true; log(s, "pipeline.required_fields_changed", st.name, st.required.join(","), fieldIds.join(",")); st.required = fieldIds; });
+  if (ok && isLive()) void crmRemote(`/stages/${sid}/required-fields`, "PUT", { fieldIds });
+};
 /** Deleting a stage that holds opportunities requires a destination stage, so nothing is orphaned. */
 export function deleteStage(pid: string, sid: string, moveTo?: string): { ok: boolean; error?: string } {
   let res: { ok: boolean; error?: string } = { ok: true };
-  mutate((s) => {
+  crmLocal((s) => {
     if (!needCfg(s)) { res = { ok: false, error: "No permission." }; return; }
     const p = s.pipelines.find((x) => x.id === pid); const st = p?.stages.find((x) => x.id === sid); if (!p || !st) return;
     if (p.stages.length <= 2) { res = { ok: false, error: "A pipeline needs at least two stages." }; return; }
@@ -532,14 +554,31 @@ export function deleteStage(pid: string, sid: string, moveTo?: string): { ok: bo
     held.forEach((o) => { o.stageId = moveTo!; act(s, { contactId: o.contactId, oppId: o.id, type: "stage", text: `Stage "${st.name}" deleted; moved to ${p.stages.find((x) => x.id === moveTo)?.name}` }); });
     p.stages = p.stages.filter((x) => x.id !== sid); log(s, "pipeline.stage_deleted", `${p.name} / ${st.name}`, undefined, held.length ? `${held.length} moved` : undefined);
   });
+  if (res.ok && isLive()) void crmRemote(`/stages/${sid}${moveTo ? `?moveTo=${moveTo}` : ""}`, "DELETE", undefined, "Stage deleted");
   return res;
 }
-export const addField = (name: string, type: FieldType, entity: "contact" | "opportunity", pipelineId: string | null, options?: string[]) => mutate((s) => { if (!needCfg(s) || !name.trim()) return; const f: CustomField = { id: uid("f"), name, type, entity, pipelineId: entity === "contact" ? null : pipelineId, options }; s.fields.push(f); log(s, "field.created", name, undefined, `${type} / ${entity}`); });
-export const deleteField = (id: string) => mutate((s) => { if (!needCfg(s)) return; const f = s.fields.find((x) => x.id === id); if (!f) return; s.fields = s.fields.filter((x) => x.id !== id); s.pipelines.forEach((p) => p.stages.forEach((st) => { st.required = st.required.filter((r) => r !== id); })); s.opps.forEach((o) => delete o.custom[id]); s.contacts.forEach((c) => delete c.custom[id]); log(s, "field.deleted", f.name); });
+export const addField = (name: string, type: FieldType, entity: "contact" | "opportunity", pipelineId: string | null, options?: string[]) => {
+  const f: CustomField = { id: rid("f"), name, type, entity, pipelineId: entity === "contact" ? null : pipelineId, options };
+  let ok = false;
+  crmLocal((s) => { if (!needCfg(s) || !name.trim()) return; ok = true; s.fields.push(f); log(s, "field.created", name, undefined, `${type} / ${entity}`); });
+  if (ok && isLive()) void crmRemote("/fields", "POST", { id: f.id, name, type, entity, pipelineId: f.pipelineId, ...(options?.length ? { options } : {}) }, `Field "${name}" added`);
+};
+export const deleteField = (id: string) => {
+  let ok = false;
+  crmLocal((s) => { if (!needCfg(s)) return; const f = s.fields.find((x) => x.id === id); if (!f) return; ok = true; s.fields = s.fields.filter((x) => x.id !== id); s.pipelines.forEach((p) => p.stages.forEach((st) => { st.required = st.required.filter((r) => r !== id); })); s.opps.forEach((o) => delete o.custom[id]); s.contacts.forEach((c) => delete c.custom[id]); log(s, "field.deleted", f.name); });
+  if (ok && isLive()) void crmRemote(`/fields/${id}`, "DELETE", undefined, "Field deleted");
+};
 
 /* ---------- lists ---------- */
-export const saveList = (name: string, criteria: Criterion[]) => mutate((s) => { s.lists.push({ id: uid("sl"), name, criteria }); });
-export const deleteList = (id: string) => mutate((s) => { s.lists = s.lists.filter((l) => l.id !== id); });
+export const saveList = (name: string, criteria: Criterion[]) => {
+  const id = rid("sl");
+  mutate((s) => { s.lists.push({ id, name, criteria }); });
+  if (isLive()) void crmRemote("/lists", "POST", { id, name, criteria }, `List "${name}" saved`);
+};
+export const deleteList = (id: string) => {
+  mutate((s) => { s.lists = s.lists.filter((l) => l.id !== id); });
+  if (isLive()) void crmRemote(`/lists/${id}`, "DELETE");
+};
 export function matchesCriteria(s: State, c: Contact, criteria: Criterion[]) {
   return criteria.every((k) => {
     const opps = s.opps.filter((o) => o.contactId === c.id); const lead = s.leads.find((l) => l.contactId === c.id);
