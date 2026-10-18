@@ -1,6 +1,6 @@
 # Database
 
-One migration holds the whole core schema (tenancy, RBAC, CRM, lead engine, integrations, audit, dashboard).
+Ten ordered migrations build the core schema. `checks.sql` verifies it; `demo_seed.sql` adds demo data after first signup.
 
 ## Apply
 ```
@@ -8,7 +8,8 @@ supabase login
 supabase link --project-ref bjbwdtlznujrresmhhyv     # prompts for the DB password
 supabase db push
 ```
-No CLI? Paste `migrations/20261018000001_core_schema.sql` into Dashboard > SQL Editor and run it once.
+No CLI? Paste each file in `migrations/` into Dashboard > SQL Editor, in numeric order (0001 -> 0010).
+Then run `checks.sql`. After your first signup, run `demo_seed.sql`.
 
 Before running: Dashboard > Database > Extensions > enable **pg_cron** (the migration schedules the
 10-second escalation sweep; if pg_cron is off it prints the one-line command to run later).
