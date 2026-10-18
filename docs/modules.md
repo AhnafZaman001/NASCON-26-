@@ -14,7 +14,7 @@ Requirement IDs (F, I, Q) refer to the problem statement. Status reflects `main`
 | M2 | CRM core records | F2.1, F2.7, F2.8 | ✅ 0002, 0004 | ✅ | — | M1 |
 | M3 | CRM customization | F2.2–F2.6 | ✅ 0002, 0013 | ✅ | — | M2 |
 | M4 | Lead engine | F3.1–F3.9, Q5 | ✅ 0003, 0009 | ✅ | — | M1, M2 |
-| M5 | Audit history | F4.1–F4.3 | ✅ 0006 | ✅ | — | M1 |
+| M5 | Audit history | F4.1–F4.3 | ✅ 0006 | ✅ live | ✅ | M1 |
 | M6 | Operational dashboard | F5.1–F5.5, Section 7, Q12 | ✅ 0007 | ✅ | — | M2, M4, M8, M9 |
 | M7 | Messaging: Twilio WhatsApp | I1.1–I1.9 | ✅ 0004, 0005 | ✅ (simulated) | — | M2, M4, M11 |
 | M8 | Payments: Stripe | I2.1–I2.8 | ✅ 0004, 0005 | ✅ (simulated) | — | M2, M11 |

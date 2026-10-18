@@ -45,7 +45,7 @@ Before pushing: `npm run build && npm run lint && npm run typecheck` must pass.
 - Auth middleware (`src/middleware/auth.ts`): `requireMember` verifies the Bearer token and loads `req.ctx = { user, member: { id, workspaceId, level, roleId }, perms }` (read it with `ctxOf(req)`); then `requirePerm("crm.edit")` or `requireTeamManager`. Always scope queries with `ctx.member.workspaceId`, never a workspace id from the client. Return 404 for ids outside the workspace.
 - Validate every body/param with zod via `parse(Schema, req.body)` (400 with per-field messages). Throw `HttpError(status, message)`; Express 5 forwards async errors to the handler in `src/index.ts`. Unwrap supabase results with `must()`.
 - Writes that should be audited go through SQL functions that call `api_set_actor(actor)` first (see migration 0014, `api_*` functions), because plain PostgREST writes cannot set `app.actor`.
-- Routes so far: `/api/auth/signup`, `/api/me`, `/api/workspace`, `/api/members`, `/api/roles`, `/api/emails`.
+- Routes so far: `/api/auth/signup`, `/api/me`, `/api/workspace`, `/api/members`, `/api/roles`, `/api/audit`, `/api/emails`.
 - Local ES imports use the `.ts` extension (`./routes/emails.ts`), run by tsx.
 
 ## Database (Supabase, project ref `bjbwdtlznujrresmhhyv`)

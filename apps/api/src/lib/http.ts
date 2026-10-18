@@ -1,5 +1,5 @@
 import type { PostgrestError } from "@supabase/supabase-js";
-import type { ZodSchema } from "zod";
+import type { ZodTypeAny, z } from "zod";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public details?: unknown) {
@@ -8,7 +8,7 @@ export class HttpError extends Error {
 }
 
 /** Validate input with zod; throws 400 with per-field messages. */
-export function parse<T>(schema: ZodSchema<T>, data: unknown): T {
+export function parse<S extends ZodTypeAny>(schema: S, data: unknown): z.output<S> {
   const r = schema.safeParse(data);
   if (r.success) return r.data;
   const fields = Object.fromEntries(r.error.issues.map((i) => [i.path.join(".") || "_", i.message]));
