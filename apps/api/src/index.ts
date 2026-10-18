@@ -2,6 +2,7 @@ import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { supabaseAdmin } from "./lib/supabase.ts";
 import { HttpError } from "./lib/http.ts";
 import { auth } from "./routes/auth.ts";
 import { me } from "./routes/me.ts";
@@ -45,6 +46,16 @@ const onError: ErrorRequestHandler = (err, _req, res, _next) => {
   res.status(500).json({ error: "Something went wrong on the server. Please try again." });
 };
 app.use(onError);
+
+// Lead escalation sweep (F3.5). pg_cron runs the same function, but its timing on Supabase is not
+// guaranteed; running it here too is safe because escalate_expired_leads() locks rows (SKIP LOCKED),
+// so a lead can never escalate twice (F3.8). Disable with ESCALATION_SWEEP=off.
+if (process.env.ESCALATION_SWEEP !== "off" && process.env.SUPABASE_SECRET_KEY) {
+  setInterval(async () => {
+    const { error } = await supabaseAdmin().rpc("escalate_expired_leads");
+    if (error) console.error("[api] escalation sweep:", error.message);
+  }, 5_000);
+}
 
 const port = Number(process.env.PORT ?? 4000);
 app.listen(port, () => console.log(`[api] listening on http://localhost:${port}`));

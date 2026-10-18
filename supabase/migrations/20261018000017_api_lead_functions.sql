@@ -69,3 +69,5 @@ revoke all on function api_ack_lead(uuid, uuid, uuid), api_reassign_lead(uuid, u
   api_touch_contact_leads(uuid, uuid, uuid) from public, anon, authenticated;
 grant execute on function api_ack_lead(uuid, uuid, uuid), api_reassign_lead(uuid, uuid, uuid, uuid),
   api_touch_contact_leads(uuid, uuid, uuid) to service_role;
+
+

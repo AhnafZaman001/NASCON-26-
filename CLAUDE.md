@@ -49,7 +49,7 @@ Before pushing: `npm run build && npm run lint && npm run typecheck` must pass.
 - Local ES imports use the `.ts` extension (`./routes/emails.ts`), run by tsx.
 
 ## Database (Supabase, project ref `bjbwdtlznujrresmhhyv`)
-- Add schema changes as a new numbered file in `supabase/migrations/` (next: `20261018000018_*.sql`; then regenerate `supabase/setup_all.sql`). Never edit an applied migration.
+- Add schema changes as a new numbered file in `supabase/migrations/` (next: `20261018000019_*.sql`; then regenerate `supabase/setup_all.sql`). Never edit an applied migration.
 - Every table has `workspace_id`. Browsers can only READ their own workspace through RLS. All writes go through the API with the service role.
 - New tables need: `enable row level security`, a select policy using `current_workspace_id()` / `has_perm()`, and `grant ... to service_role`.
 - `audit_log` is append-only. Set `select set_config('app.actor', '<member uuid>', true)` before service-role writes so audit rows name the right person.
