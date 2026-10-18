@@ -3,13 +3,13 @@ import { useMemo, useState } from "react";
 import { Download, Plus, Trash2 } from "lucide-react";
 import { useApp, canSeeContact } from "@/lib/app";
 import { download } from "@/lib/api";
-import { addContact, deleteList, matchesCriteria, saveList } from "@/lib/store";
+import { addContact, deleteList, matchesCriteria, saveList, useSyncStatus } from "@/lib/store";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Select, toast } from "@/components/ui";
 import type { Criterion } from "@/lib/types";
 
 const PAGE = 10;
 export default function Contacts() {
-  const { s, me, can } = useApp(); const [q, setQ] = useState(""); const [crit, setCrit] = useState<Criterion[]>([]); const [page, setPage] = useState(0);
+  const { s, me, can } = useApp(); const sync = useSyncStatus(); const [q, setQ] = useState(""); const [crit, setCrit] = useState<Criterion[]>([]); const [page, setPage] = useState(0);
   const [open, setOpen] = useState(false); const [f, setF] = useState({ name: "", phone: "", email: "", companyId: "" }); const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false); const [listName, setListName] = useState("");
   const canView = can("crm.view"); const seeVal = can("values.view");
@@ -62,7 +62,7 @@ export default function Contacts() {
           {crit.length > 0 && <Button variant="ghost" size="sm" onClick={() => setCrit([])}>Clear</Button>}
         </div>
       </Card>
-      {shown.length === 0 ? <Empty title="No contacts match" hint="Try removing a filter." /> : (
+      {shown.length === 0 ? (s.mode === "live" && !sync.loaded ? <p role="status" className="text-sm text-muted">Loading contacts…</p> : <Empty title={all.length ? "No contacts match" : "No contacts yet"} hint={all.length ? "Try removing a filter." : "Add one with New contact, or capture a lead."} />) : (
         <ul className="space-y-2">{shown.map((c) => (
           <li key={c.id}><Card className="flex flex-wrap items-center justify-between gap-2">
             <div><Link to={`/contacts/${c.id}`} className="font-medium hover:underline">{c.name}</Link><p className="text-xs text-muted">{c.phone} · {c.email || "no email"} · {co(c.companyId)}</p></div>

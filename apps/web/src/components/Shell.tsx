@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Bell, CalendarDays, CreditCard, Gauge, Inbox, LogOut, Menu, Plug, ScrollText, Settings, ShieldAlert, Users, KanbanSquare, X } from "lucide-react";
 import { useApp } from "@/lib/app";
-import { logout, loginAs, markNotificationsRead, recoveryItems, setStatus } from "@/lib/store";
+import { logout, loginAs, markNotificationsRead, recoveryItems, setStatus, syncCrm, useSyncStatus } from "@/lib/store";
 import { cn, ago } from "@/lib/utils";
 import { Avatar, Badge, Select } from "./ui";
 import type { Availability } from "@/lib/types";
@@ -65,6 +65,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/90 px-3 py-2.5 backdrop-blur sm:px-5">
           <button className="rounded-lg p-2 hover:bg-surface2 lg:hidden" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <X size={18} /> : <Menu size={18} />}</button>
           <div className="ml-auto flex items-center gap-2">
+            {s.mode === "live" && <SyncIndicator />}
             <label className="sr-only" htmlFor="my-status">My availability</label>
             <Select id="my-status" value={me.status} onChange={(e) => setStatus(me.id, e.target.value as Availability)} className="!w-auto !py-1.5">
               {(Object.keys(statusLabel) as Availability[]).map((k) => <option key={k} value={k}>{statusLabel[k]}</option>)}
@@ -90,4 +91,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+/** Live mode only: tells the user records are loading, saving, saved, or failed to sync (Q10). */
+function SyncIndicator() {
+  const st = useSyncStatus();
+  if (st.error) return (
+    <span role="alert" className="flex items-center gap-1.5 text-xs text-bad">
+      <span className="hidden sm:inline">Couldn&apos;t sync: {st.error}</span><span className="sm:hidden">Sync failed</span>
+      <button className="rounded border border-bad px-1.5 py-0.5 hover:bg-bad/10" onClick={() => void syncCrm()}>Retry</button>
+    </span>
+  );
+  const label = !st.loaded ? "Loading records…" : st.saving ? "Saving…" : "All changes saved";
+  return <span role="status" aria-live="polite" className="hidden text-xs text-muted sm:inline">{label}</span>;
 }

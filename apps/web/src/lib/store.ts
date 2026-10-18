@@ -120,6 +120,13 @@ async function remote<T extends ServerWorkspace>(path: string, method: string, b
   }
 }
 
+/* ---------- sync status (Q10): first load, saves in flight, last error — not persisted ---------- */
+export type SyncStatus = { loaded: boolean; saving: number; error: string | null };
+let syncStatus: SyncStatus = { loaded: false, saving: 0, error: null };
+const statusListeners = new Set<() => void>();
+const setSync = (p: Partial<SyncStatus>) => { syncStatus = { ...syncStatus, ...p }; statusListeners.forEach((l) => l()); };
+export const useSyncStatus = () => useSyncExternalStore((l) => { statusListeners.add(l); return () => { statusListeners.delete(l); }; }, () => syncStatus, () => syncStatus);
+
 /* ---------- live CRM (M2): companies, contacts, opportunities, pipelines, fields, activity ---------- */
 type CrmSnapshot = Pick<State, "companies" | "contacts" | "opps" | "pipelines" | "fields" | "activity" | "lists">;
 let crmWriting = false;
@@ -138,10 +145,10 @@ function applyCrm(d: CrmSnapshot) {
 export async function syncCrm() {
   if (!isLive()) return;
   const { api, ApiError } = await import("./api");
-  try { applyCrm(await api<CrmSnapshot>("/crm")); }
+  try { applyCrm(await api<CrmSnapshot>("/crm")); setSync({ loaded: true, error: null }); }
   catch (e) {
-    if (e instanceof ApiError && e.status === 403) applyCrm({ companies: [], contacts: [], opps: [], pipelines: state.pipelines, fields: state.fields, activity: [], lists: [] });
-    else feedback.error(e instanceof Error ? e.message : "Could not load CRM records.");
+    if (e instanceof ApiError && e.status === 403) { applyCrm({ companies: [], contacts: [], opps: [], pipelines: state.pipelines, fields: state.fields, activity: [], lists: [] }); setSync({ loaded: true, error: null }); }
+    else setSync({ loaded: true, error: e instanceof Error ? e.message : "Could not load CRM records." });
   }
 }
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -151,6 +158,7 @@ const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(() 
 function crmLocal(fn: (s: State) => void) { crmWriting = isLive(); try { mutate(fn); } finally { crmWriting = false; } }
 async function crmRemote(path: string, method: string, body?: unknown, okMsg?: string) {
   const { api } = await import("./api");
+  setSync({ saving: syncStatus.saving + 1 });
   try {
     const r = await api<{ contact?: Contact; opportunity?: Opportunity; company?: State["companies"][number] }>(path, { method, body });
     // apply the saved row right away (new opportunity version etc.); activity arrives with the sync
@@ -164,7 +172,7 @@ async function crmRemote(path: string, method: string, body?: unknown, okMsg?: s
   } catch (e) {
     feedback.error(e instanceof Error ? e.message : "Couldn't save. Your change was undone.");
     return false;
-  } finally { scheduleSync(); }
+  } finally { setSync({ saving: Math.max(0, syncStatus.saving - 1) }); scheduleSync(); }
 }
 const oppVersion = (id: string) => state.opps.find((o) => o.id === id)?.version ?? 1;
 
