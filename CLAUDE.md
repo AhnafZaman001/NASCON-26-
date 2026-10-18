@@ -10,7 +10,9 @@ apps/worker     BullMQ consumer: sends rows from public.emails with nodemailer
 packages/queue  Shared BullMQ contract (EMAIL_QUEUE, EmailJob, enqueueUserEmails)
 packages/ui     Shared constants
 supabase/       Ordered SQL migrations + checks.sql + demo_seed.sql
+docs/modules.md Problem statement split into modules M0-M12 with requirement IDs and status
 ```
+When picking up work, find its module in `docs/modules.md` and check the requirement IDs (F/I/Q) it must satisfy.
 There is no Next.js anymore. Do not add it back or use `next/*` imports.
 
 ## Commands (run from repo root)
