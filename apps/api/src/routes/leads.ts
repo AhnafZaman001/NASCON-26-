@@ -69,7 +69,7 @@ leads.get("/leads", requireMember, async (req, res) => {
  * One way in for every source (F3.1): match the contact by phone or create it, then insert the lead.
  * The insert trigger assigns it round-robin (F3.3) and starts the acknowledgement window (F3.4).
  */
-async function createLead(ws: string, b: { name: string; phone: string; email?: string; note?: string; source: keyof typeof SOURCE_IN }, actor: string | null) {
+export async function createLead(ws: string, b: { name: string; phone: string; email?: string; note?: string; source: keyof typeof SOURCE_IN }, actor: string | null) {
   const db = supabaseAdmin();
   const source = SOURCE_IN[b.source];
   let contactId = (await db.from("contacts").select("id").eq("workspace_id", ws).eq("phone", b.phone).maybeSingle()).data?.id as string | undefined;

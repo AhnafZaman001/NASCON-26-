@@ -128,7 +128,7 @@ const setSync = (p: Partial<SyncStatus>) => { syncStatus = { ...syncStatus, ...p
 export const useSyncStatus = () => useSyncExternalStore((l) => { statusListeners.add(l); return () => { statusListeners.delete(l); }; }, () => syncStatus, () => syncStatus);
 
 /* ---------- live CRM (M2): companies, contacts, opportunities, pipelines, fields, activity ---------- */
-type CrmSnapshot = Pick<State, "companies" | "contacts" | "opps" | "pipelines" | "fields" | "activity" | "lists">;
+type CrmSnapshot = Pick<State, "companies" | "contacts" | "opps" | "pipelines" | "fields" | "activity" | "lists"> & { messages?: State["messages"]; messagingStatus?: State["integrations"]["messaging"]["status"] };
 let crmWriting = false;
 /** New record ids: UUIDs in live mode so the optimistic local copy and the server row share one id. */
 const rid = (prefix: string) => (isLive() && typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : uid(prefix));
@@ -136,6 +136,8 @@ const rid = (prefix: string) => (isLive() && typeof crypto !== "undefined" && "r
 function applyCrm(d: CrmSnapshot) {
   const n = structuredClone(state);
   n.companies = d.companies; n.contacts = d.contacts; n.opps = d.opps; n.pipelines = d.pipelines; n.fields = d.fields; n.lists = d.lists;
+  if (d.messages) n.messages = d.messages;
+  if (d.messagingStatus) { n.integrations.messaging.status = d.messagingStatus; n.integrations.messaging.provider = "Twilio WhatsApp Sandbox"; }
   // server history + local-only entries from modules not migrated yet (messages, payments, leads...)
   const local = n.activity.filter((a) => !a.id.startsWith("srv_") && !a.id.startsWith("tmp_"));
   n.activity = [...d.activity, ...local].sort((a, b) => b.at - a.at).slice(0, 2000);
@@ -182,6 +184,7 @@ async function startLiveUpdates() {
   const { supabase } = await import("./supabase");
   supabase.channel("leads-live")
     .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => scheduleLeadSync())
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => scheduleSync())
     .subscribe();
   setInterval(() => { if (isLive()) void syncLeads(); }, 15_000);
 }
@@ -649,6 +652,14 @@ function deliver(id: string) {
 }
 export function sendMessage(contactId: string, body: string): { ok: boolean; error?: string } {
   let res: { ok: boolean; error?: string } = { ok: true };
+  if (isLive()) {
+    // the server sends through Twilio; failures come back as a failed message with the reason (I1.7)
+    const c = state.contacts.find((x) => x.id === contactId);
+    if (!c || !body.trim()) return { ok: false };
+    if (c.optedOut) return { ok: false, error: "This contact opted out of messaging. Remove the opt-out only if they ask to be contacted again." };
+    void crmRemote(`/contacts/${contactId}/messages`, "POST", { body });
+    return res;
+  }
   mutate((s) => {
     const c = s.contacts.find((x) => x.id === contactId); if (!c || !body.trim()) { res = { ok: false }; return; }
     if (c.optedOut) { res = { ok: false, error: "This contact opted out of messaging. Remove the opt-out only if they ask to be contacted again." }; return; }
@@ -661,7 +672,8 @@ export function sendMessage(contactId: string, body: string): { ok: boolean; err
   });
   return res;
 }
-export const retryMessage = (id: string) => { const m = state.messages.find((x) => x.id === id); if (!m) return; mutate((s) => { s.messages = s.messages.filter((x) => x.id !== id); }); sendMessage(m.contactId, m.body); };
+export const retryMessage = (id: string) => {
+  if (isLive()) { void crmRemote(`/messages/${id}/retry`, "POST", undefined, "Retrying…"); return; } const m = state.messages.find((x) => x.id === id); if (!m) return; mutate((s) => { s.messages = s.messages.filter((x) => x.id !== id); }); sendMessage(m.contactId, m.body); };
 export function simulateIncoming(phone: string, body: string, providerId?: string) {
   mutate((s) => {
     const ref = providerId ?? "SM" + uid("in").slice(3);

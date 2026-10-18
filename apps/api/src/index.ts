@@ -13,6 +13,7 @@ import { audit } from "./routes/audit.ts";
 import { crm } from "./routes/crm.ts";
 import { config } from "./routes/config.ts";
 import { leads } from "./routes/leads.ts";
+import { messaging, startTwilioPoller } from "./routes/messaging.ts";
 import { emails } from "./routes/emails.ts";
 
 const app = express();
@@ -34,6 +35,7 @@ app.use("/api/audit", audit);
 app.use("/api", crm);   // /api/crm, /api/companies, /api/contacts, /api/opportunities, /api/export
 app.use("/api", config);   // /api/pipelines, /api/stages, /api/fields, /api/lists
 app.use("/api", leads);    // /api/leads, /api/public/capture
+app.use("/api", messaging); // /api/contacts/:id/messages, /api/messages/:id/retry, /api/webhooks/twilio
 app.use("/api/emails", emails);
 
 app.use((_req, res) => void res.status(404).json({ error: "Not found." }));
@@ -59,3 +61,4 @@ if (process.env.ESCALATION_SWEEP !== "off" && process.env.SUPABASE_SECRET_KEY) {
 
 const port = Number(process.env.PORT ?? 4000);
 app.listen(port, () => console.log(`[api] listening on http://localhost:${port}`));
+startTwilioPoller();

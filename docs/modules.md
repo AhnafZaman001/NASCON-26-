@@ -16,7 +16,7 @@ Requirement IDs (F, I, Q) refer to the problem statement. Status reflects `main`
 | M4 | Lead engine | F3.1–F3.9, Q5 | ✅ 0003, 0009, 0017 | ✅ live | ✅ | M1, M2 |
 | M5 | Audit history | F4.1–F4.3 | ✅ 0006 | ✅ live | ✅ | M1 |
 | M6 | Operational dashboard | F5.1–F5.5, Section 7, Q12 | ✅ 0007 | ✅ | — | M2, M4, M8, M9 |
-| M7 | Messaging: Twilio WhatsApp | I1.1–I1.9 | ✅ 0004, 0005 | ✅ (simulated) | — | M2, M4, M11 |
+| M7 | Messaging: Twilio WhatsApp | I1.1–I1.9 | ✅ 0004, 0005 | ✅ live | ✅ | M2, M4, M11 |
 | M8 | Payments: Stripe | I2.1–I2.8 | ✅ 0004, 0005 | ✅ (simulated) | — | M2, M11 |
 | M9 | Calendar: Google OAuth | I3.1–I3.7 | ✅ 0004, 0005 | ✅ (simulated) | — | M1, M2, M11 |
 | M10 | Notifications: email | I4.1–I4.4 | ✅ 0005, 0011 | partial | partial (worker) | M4, M11 |

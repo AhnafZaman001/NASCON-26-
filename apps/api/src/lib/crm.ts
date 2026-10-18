@@ -79,7 +79,7 @@ export async function getOwned<T = { id: string }>(ctx: { member: { workspaceId:
 /** Everything the CRM screens need in one call (pipelines, fields, records, recent history). */
 export async function loadCrm(ws: string, seeValues: boolean) {
   const db = supabaseAdmin();
-  const [companies, contacts, opps, pipelines, stages, required, fields, activities, lists] = await Promise.all([
+  const [companies, contacts, opps, pipelines, stages, required, fields, activities, lists, messages, twilio] = await Promise.all([
     db.from("companies").select(COMPANY_COLS).eq("workspace_id", ws).order("name").limit(2000),
     db.from("contacts").select(CONTACT_COLS).eq("workspace_id", ws).order("created_at", { ascending: false }).limit(5000),
     db.from("opportunities").select(OPP_COLS).eq("workspace_id", ws).order("created_at", { ascending: false }).limit(5000),
@@ -89,6 +89,8 @@ export async function loadCrm(ws: string, seeValues: boolean) {
     db.from("field_definitions").select("id, name, type, entity, pipeline_id, options, position").eq("workspace_id", ws).order("position"),
     db.from("activities").select(ACTIVITY_COLS).eq("workspace_id", ws).order("id", { ascending: false }).limit(1000),
     db.from("saved_lists").select("id, name, filters").eq("workspace_id", ws).order("created_at"),
+    db.from("messages").select("id, contact_id, direction, body, status, error, sent_by, provider_sid, created_at").eq("workspace_id", ws).order("created_at").limit(2000),
+    db.from("integrations").select("status").eq("workspace_id", ws).eq("provider", "twilio").maybeSingle(),
   ]);
   const st = must(stages) as { id: string; pipeline_id: string; name: string; kind: "open" | "won" | "lost" }[];
   const req = must(required) as { stage_id: string; field_id: string }[];
@@ -107,5 +109,10 @@ export async function loadCrm(ws: string, seeValues: boolean) {
       .map((f) => ({ id: f.id, name: f.name, type: f.type, entity: f.entity, pipelineId: f.pipeline_id, options: Array.isArray(f.options) ? f.options : [] })),
     activity: (must(activities) as ActivityRow[]).map(activityDto),
     lists: (must(lists) as { id: string; name: string; filters: unknown }[]).map((l) => ({ id: l.id, name: l.name, criteria: Array.isArray(l.filters) ? l.filters : [] })),
+    messages: (must(messages) as { id: string; contact_id: string; direction: string; body: string; status: string; error: string | null; sent_by: string | null; provider_sid: string | null; created_at: string }[]).map((m) => ({
+      id: m.id, contactId: m.contact_id, direction: m.direction === "inbound" ? "in" : "out", body: m.body, at: ms(m.created_at),
+      status: m.status === "read" ? "delivered" : m.status, error: m.error ?? undefined, by: m.sent_by ?? undefined, ref: m.provider_sid ?? m.id,
+    })),
+    messagingStatus: process.env.TWILIO_ACCOUNT_SID ? ((twilio.data?.status as string) === "error" ? "error" : "connected") : "not_connected",
   };
 }
