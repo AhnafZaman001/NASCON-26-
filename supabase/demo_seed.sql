@@ -32,8 +32,10 @@ begin
     values (ws, 'contact', 'Preferred language', 'dropdown', '["English","Urdu"]') returning id into f_lang;
 
   -- stage-specific required fields (F2.4)
-  update stages set required_field_ids = array[f_roof, f_kw] where pipeline_id = solar and name = 'Quote sent';
-  update stages set required_field_ids = array[f_budget] where pipeline_id = sales and name = 'Proposal';
+  insert into stage_required_fields (workspace_id, stage_id, field_id)
+    select s.workspace_id, s.id, f from stages s, unnest(array[f_roof, f_kw]) f where s.pipeline_id = solar and s.name = 'Quote sent';
+  insert into stage_required_fields (workspace_id, stage_id, field_id)
+    select s.workspace_id, s.id, f_budget from stages s where s.pipeline_id = sales and s.name = 'Proposal';
 
   for i in 1..8 loop
     insert into contacts (workspace_id, full_name, email, phone, tags, source, custom)
