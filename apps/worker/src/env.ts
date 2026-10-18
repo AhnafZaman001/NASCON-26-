@@ -13,7 +13,7 @@ export const env = {
     secure: (process.env.SMTP_SECURE ?? "true") === "true",
     user: required("SMTP_USER"),
     pass: required("SMTP_PASS"),
-    from: process.env.SMTP_FROM ?? required("SMTP_USER"),
+    from: process.env.MAIL_FROM ?? process.env.SMTP_FROM ?? required("SMTP_USER"),
   },
   concurrency: Number(process.env.EMAIL_CONCURRENCY ?? 5),
 };
