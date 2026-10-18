@@ -84,7 +84,7 @@ function bootLive(p: ServerWorkspace) {
   state = { ...base, mode: "live", hydrated: true };
   applyServer(p);
   listenStorage();
-  void syncCrm();
+  void syncCrm(); void syncLeads(); startLiveUpdates();
 }
 
 /** If a Supabase session exists, load the workspace from the API. Returns false to fall back to demo mode. */
@@ -152,7 +152,45 @@ export async function syncCrm() {
   }
 }
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
-const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(() => void syncCrm(), 400); };
+const scheduleSync = () => { clearTimeout(syncTimer); syncTimer = setTimeout(() => { void syncCrm(); void syncLeads(); }, 400); };
+
+/* ---------- live leads (M4): the engine runs in Postgres; the browser only shows it ---------- */
+export async function syncLeads() {
+  if (!isLive()) return;
+  const { api } = await import("./api");
+  try {
+    const { leads } = await api<{ leads: Lead[] }>("/leads");
+    const n = structuredClone(state);
+    // surface "assigned to you" as an in-app notification (Engine toasts it) when ownership moves to me
+    for (const l of leads) {
+      const before = n.leads.find((x) => x.id === l.id);
+      if (l.ownerId && l.ownerId === n.meId && before?.ownerId !== n.meId && l.status === "assigned") {
+        const c = n.contacts.find((x) => x.id === l.contactId);
+        n.notifications.unshift({ id: uid("nt"), at: now(), userId: n.meId!, text: `${l.escalations ? "Escalated lead" : "New lead"}: ${c?.name ?? "contact"} (${l.source})`, leadId: l.id, read: false });
+      }
+    }
+    n.leads = leads; state = n; save(); emit();
+  } catch { /* the header sync indicator covers CRM errors; leads retry on the next poll */ }
+}
+let leadTimer: ReturnType<typeof setTimeout> | undefined;
+const scheduleLeadSync = () => { clearTimeout(leadTimer); leadTimer = setTimeout(() => void syncLeads(), 300); };
+let liveStarted = false;
+/** Q11: Supabase Realtime pushes lead changes (RLS limits it to this workspace); a 15 s poll backs it up. */
+async function startLiveUpdates() {
+  if (liveStarted || typeof window === "undefined") return;
+  liveStarted = true;
+  const { supabase } = await import("./supabase");
+  supabase.channel("leads-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => scheduleLeadSync())
+    .subscribe();
+  setInterval(() => { if (isLive()) void syncLeads(); }, 15_000);
+}
+async function leadRemote(path: string, body?: unknown, okMsg?: string) {
+  const { api } = await import("./api");
+  try { await api(path, { method: "POST", body }); if (okMsg) feedback.ok(okMsg); return true; }
+  catch (e) { feedback.error(e instanceof Error ? e.message : "Couldn't update the lead."); return false; }
+  finally { void syncLeads(); }
+}
 
 /** Optimistic local change (with placeholder activity), then the server write; on failure resync to undo. */
 function crmLocal(fn: (s: State) => void) { crmWriting = isLive(); try { mutate(fn); } finally { crmWriting = false; } }
@@ -260,6 +298,7 @@ function escalate(s: State, lead: Lead, reason: string) {
   place(s, lead, owner, "escalate", reason);
 }
 export function tick() {
+  if (isLive()) return;
   const t = now();
   const due = state.leads.some((l) => l.status === "assigned" && l.deadlineAt && l.deadlineAt <= t);
   if (!due) return;
@@ -276,10 +315,12 @@ function touch(s: State, contactId: string, label: string) {
     log(s, "lead.acknowledged", s.contacts.find((c) => c.id === contactId)?.name ?? lead.id, undefined, label);
   }
 }
-export const acknowledge = (leadId: string) => mutate((s) => {
+export const acknowledge = (leadId: string) => { if (isLive()) { void leadRemote(`/leads/${leadId}/acknowledge`, undefined, "Lead acknowledged"); return; } acknowledgeLocal(leadId); };
+const acknowledgeLocal = (leadId: string) => mutate((s) => {
   const l = s.leads.find((x) => x.id === leadId); if (!l || l.ownerId !== s.meId) return; touch(s, l.contactId, "Acknowledged");
 });
-export const reassignLead = (leadId: string, toId: string) => mutate((s) => {
+export const reassignLead = (leadId: string, toId: string) => { if (isLive()) { void leadRemote(`/leads/${leadId}/reassign`, { to: toId }, "Lead reassigned"); return; } reassignLocal(leadId, toId); };
+const reassignLocal = (leadId: string, toId: string) => mutate((s) => {
   if (!canDo(s, "assignment.manage")) return;
   const l = s.leads.find((x) => x.id === leadId); const m = member(s, toId); if (l && m) place(s, l, m, "reassign", `Manually reassigned by ${nameOf(s, s.meId)}`);
 });
@@ -293,11 +334,13 @@ function contactForLead(name: string, phone: string, email: string, source: stri
   return { id, saved };
 }
 export const createManualLead = (name: string, phone: string, email: string, source: string) => {
+  if (isLive()) { void leadRemote("/leads", { name, phone, email }, "Lead created and assigned").then(() => scheduleSync()); return; }
   if (!canDo(state, "crm.create")) return;
   const { id: cid } = contactForLead(name, phone, email, source);
   mutate((s) => { newLead(s, cid, source); });
 };
 export const captureLead = (name: string, phone: string, email: string, note: string) => {
+  if (isLive()) { void leadRemote(`/public/capture/${state.workspace.id}`, { name, phone, email, note }).then(() => scheduleSync()); return; }
   const { id: cid, saved } = contactForLead(name, phone, email, "web form");
   mutate((s) => {
     if (note) act(s, { contactId: cid, type: "note", actor: "system", text: `Web form: ${note}` });
@@ -328,9 +371,9 @@ export const setStatus = (memberId: string, status: Availability) => {
     if (m.id !== me.id && me.level === "user" && !me.perms.includes("assignment.manage")) return;
     const before = m.status; m.status = status;
     if (!isLive()) log(s, "availability.changed", m.name, before, status);
-    if (status === "leave" || status === "offline") reassignLocalLeads(s, m, `${m.name} set to ${status}`);
+    if (!isLive() && (status === "leave" || status === "offline")) reassignLocalLeads(s, m, `${m.name} set to ${status}`);
   });
-  if (isLive()) void remote(`/members/${memberId}/status`, "POST", { status });
+  if (isLive()) void remote(`/members/${memberId}/status`, "POST", { status }).then(() => syncLeads());
 };
 
 /** Returns the one-time temporary password in live mode (shown once to the inviter). */
@@ -361,8 +404,7 @@ export const updateMember = (id: string, patch: { level?: Exclude<Level, "owner"
 
 export const removeMember = (id: string) => {
   if (isLive()) {
-    mutate((s) => { const m = member(s, id); if (m) reassignLocalLeads(s, { ...m, status: "offline" }, `${m.name} removed`); });
-    void remote(`/members/${id}`, "DELETE", undefined, "Team member removed");
+    void remote(`/members/${id}`, "DELETE", undefined, "Team member removed").then(() => syncLeads());
     return;
   }
   mutate((s) => {

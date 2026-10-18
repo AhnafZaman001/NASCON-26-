@@ -169,5 +169,19 @@ export default function Settings() {
   const [tab, setTab] = useState<"pipeline" | "assign" | "team">("pipeline");
   return (<><PageHeader title="Settings" sub="Shape the CRM and the lead rules without a developer." />
     <div className="mb-4"><Tabs tabs={[{ key: "pipeline", label: "Pipelines & fields" }, { key: "assign", label: "Assignment & escalation" }, { key: "team", label: "Team & roles" }]} value={tab} onChange={setTab} /></div>
-    {tab === "pipeline" ? <PipelineTab /> : tab === "assign" ? <AssignmentTab /> : <TeamTab />}</>);
+    {tab === "pipeline" ? <PipelineTab /> : tab === "assign" ? <><FormLink /><AssignmentTab /></> : <TeamTab />}</>);
+}
+
+/** Live mode: the shareable public lead form for this workspace (F3.1). */
+function FormLink() {
+  const { s } = useApp();
+  if (s.mode !== "live") return null;
+  const url = `${window.location.origin}/capture?w=${s.workspace.id}`;
+  return (
+    <Card className="mb-4 text-sm">
+      <p className="font-medium">Public lead form</p>
+      <p className="text-muted">Share or embed this link. Every submission becomes a lead and is assigned instantly.</p>
+      <p className="mt-2 break-all font-mono text-xs"><a className="text-brand underline" href={url} target="_blank" rel="noreferrer">{url}</a></p>
+    </Card>
+  );
 }

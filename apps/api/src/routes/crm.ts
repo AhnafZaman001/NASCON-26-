@@ -20,6 +20,11 @@ const optText = (max: number) => z.string().trim().max(max).optional();
 const Custom = z.record(z.string().uuid(), z.string().max(500)).optional();
 const seeValues = (ctx: Ctx) => can(ctx, "values.view");
 
+// Glossary: a recorded action by the owner (note, stage change) acknowledges their open leads on the contact.
+const touchLeads = async (ctx: Ctx, contactId: string) => {
+  await supabaseAdmin().rpc("api_touch_contact_leads", { p_actor: ctx.member.id, p_ws: ctx.member.workspaceId, p_contact: contactId });
+};
+
 async function deleteRecord(ctx: Ctx, kind: "contact" | "company" | "opportunity", id: string) {
   must(await supabaseAdmin().rpc("api_delete_crm", { p_actor: ctx.member.id, p_ws: ctx.member.workspaceId, p_kind: kind, p_id: id }));
 }
@@ -163,6 +168,7 @@ crm.post("/contacts/:id/notes", ...allow("crm.view"), async (req, res) => {
     if (o.contact_id !== id) throw new HttpError(400, "That opportunity belongs to another contact.");
   }
   await logActivity(ctx.member.workspaceId, ctx.member.id, { contactId: id, oppId: b.oppId, type: "note", text: b.text });
+  await touchLeads(ctx, id);
   res.status(201).json({ ok: true });
 });
 
@@ -276,6 +282,7 @@ crm.patch("/opportunities/:id", ...allow("crm.edit"), async (req, res) => {
   if (error) throw dbError(error)!;   // P0001 from opportunity_guard = required fields missing (F2.4)
   if (!data?.length) throw new HttpError(409, "Someone else changed this opportunity. Reload to see their changes, then try again.");
   for (const n of notes) await logActivity(ws, ctx.member.id, { contactId: cur.contact_id, oppId: id, type: n.type, text: n.text });
+  if (patch.stage_id) await touchLeads(ctx, cur.contact_id);
   res.json({ opportunity: oppDto(data[0] as OppRow, seeValues(ctx)) });
 });
 
