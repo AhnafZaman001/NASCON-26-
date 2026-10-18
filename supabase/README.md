@@ -8,7 +8,8 @@ supabase login
 supabase link --project-ref bjbwdtlznujrresmhhyv     # prompts for the DB password
 supabase db push
 ```
-No CLI? Paste each file in `migrations/` into Dashboard > SQL Editor, in numeric order (0001 -> 0010).
+No CLI? Paste `setup_all.sql` (all migrations combined, in order) into Dashboard > SQL Editor and run it once.
+Regenerate it after adding a migration.
 Then run `checks.sql`. After your first signup, run `demo_seed.sql`.
 
 Before running: Dashboard > Database > Extensions > enable **pg_cron** (the migration schedules the
