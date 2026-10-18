@@ -15,6 +15,6 @@
     "start:worker": "npm run start -w @nascon/worker",
     "lint": "npm run lint -w @nascon/web",
     "typecheck": "npm run typecheck -w @nascon/api -w @nascon/worker",
-    "bundle:api": "esbuild apps/api/src/app.ts --bundle --platform=node --format=cjs --target=node20 --outfile=api/_lib/app.cjs --external:msgpackr-extract --log-level=warning"
+    "bundle:api": "esbuild apps/api/src/app.ts --bundle --platform=node --format=cjs --target=node20 --outfile=apps/api/dist/app.cjs --external:msgpackr-extract --log-level=warning"
   }
 }

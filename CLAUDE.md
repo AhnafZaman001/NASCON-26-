@@ -25,7 +25,7 @@ npm run build          # tsc + vite build for web
 npm run lint           # eslint for web
 npm run typecheck      # api + worker
 npm run test:engine -w @nascon/web   # lead engine checks
-npm run bundle:api     # rebuild api/_lib/app.cjs (Vercel function) after ANY apps/api change
+npm run bundle:api     # rebuild apps/api/dist/app.cjs (Vercel "api" service) after ANY apps/api change
 ```
 Before pushing: `npm run build && npm run lint && npm run typecheck` must pass.
 

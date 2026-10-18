@@ -1,21 +1,23 @@
 {
-  "framework": null,
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
-  "outputDirectory": "apps/web/dist",
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 30
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "api": {
+      "root": "apps/api",
+      "framework": "express",
+      "entrypoint": "vercel.cjs",
+      "installCommand": "echo 'api is pre-bundled (npm run bundle:api), nothing to install'",
+      "buildCommand": "echo 'api is pre-bundled (npm run bundle:api)'"
+    },
+    "web": {
+      "root": "apps/web",
+      "framework": "vite",
+      "installCommand": "cd ../.. && npm install",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist"
     }
   },
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api"
-    },
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/(.*)", "destination": { "service": "api" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
   ]
 }
