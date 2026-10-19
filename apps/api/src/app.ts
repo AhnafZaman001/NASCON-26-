@@ -16,6 +16,7 @@ import { config } from "./routes/config.ts";
 import { leads } from "./routes/leads.ts";
 import { messaging } from "./routes/messaging.ts";
 import { emails } from "./routes/emails.ts";
+import { calendar } from "./routes/calendar.ts";
 
 const app = express();
 // behind Vercel / any proxy: real client IPs for rate limiting
@@ -39,6 +40,7 @@ app.use("/api", crm);   // /api/crm, /api/companies, /api/contacts, /api/opportu
 app.use("/api", config);   // /api/pipelines, /api/stages, /api/fields, /api/lists
 app.use("/api", leads);    // /api/leads, /api/public/capture
 app.use("/api", messaging); // /api/contacts/:id/messages, /api/messages/:id/retry, /api/webhooks/twilio
+app.use("/api", calendar);  // /api/calendar/*, /api/appointments (Google Calendar, M9)
 app.use("/api/emails", emails);
 
 app.use((_req, res) => void res.status(404).json({ error: "Not found." }));

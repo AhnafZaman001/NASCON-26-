@@ -68,7 +68,7 @@ function applyServer(p: ServerWorkspace) {
   const n = structuredClone(state);
   n.mode = "live"; n.hydrated = true;
   n.workspace = p.workspace; n.roles = p.roles; n.meId = p.meId; n.settings = p.settings;
-  n.members = p.members.map((m) => { const { hiddenTiles, ...rest } = m; void hiddenTiles; return { ...rest, tz: localTz() }; });
+  n.members = p.members.map((m) => { const { hiddenTiles, ...rest } = m; void hiddenTiles; return { ...rest, tz: state.members.find((x) => x.id === m.id)?.tz ?? localTz() }; });
   const mine = p.members.find((m) => m.id === p.meId);
   if (mine) n.hiddenTiles[p.meId] = mine.hiddenTiles;
   state = n; save(); emit();
@@ -84,7 +84,7 @@ function bootLive(p: ServerWorkspace) {
   state = { ...base, mode: "live", hydrated: true };
   applyServer(p);
   listenStorage();
-  void syncCrm(); void syncLeads(); startLiveUpdates();
+  void syncCrm(); void syncLeads(); void syncAppointments(); startLiveUpdates();
 }
 
 /** If a Supabase session exists, load the workspace from the API. Returns false to fall back to demo mode. */
@@ -185,8 +185,9 @@ async function startLiveUpdates() {
   supabase.channel("leads-live")
     .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => scheduleLeadSync())
     .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => scheduleSync())
+    .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => scheduleApptSync())
     .subscribe();
-  setInterval(() => { if (isLive()) void syncLeads(); }, 15_000);
+  setInterval(() => { if (isLive()) { void syncLeads(); void syncAppointments(); } }, 15_000);
 }
 async function leadRemote(path: string, body?: unknown, okMsg?: string) {
   const { api } = await import("./api");
@@ -723,6 +724,85 @@ export const rescheduleAppointment = (id: string, start: number, end: number): {
   mutate((s) => { const a = s.appointments.find((x) => x.id === id); if (!a) return; if (conflicts(s, a.memberId, start, end, id).length) { res = { ok: false, error: "That slot overlaps another busy time." }; return; } a.start = start; a.end = end; sync(s, "calendar", "out", "ok", id, "Event updated"); act(s, { contactId: a.contactId, type: "appointment", text: `Rescheduled "${a.title}"` }); });
   return res;
 };
+
+/* ---------- live calendar (M9): Google Calendar through apps/api ---------- */
+export type CalConflict = { source: "google" | "platform"; title: string; start: string; end: string };
+export type CalResult = { ok: boolean; error?: string; conflicts?: CalConflict[]; warning?: string | null };
+
+export async function syncAppointments() {
+  if (!isLive()) return;
+  const { api } = await import("./api");
+  try {
+    const r = await api<{ appointments: Appointment[]; timezones: Record<string, string> }>("/appointments");
+    const n = structuredClone(state);
+    n.appointments = r.appointments;
+    n.members = n.members.map((m) => (r.timezones[m.id] ? { ...m, tz: r.timezones[m.id] } : m));   // I3.5: each employee's own zone
+    state = n; save(); emit();
+  } catch { /* the next poll or realtime event retries */ }
+}
+let apptTimer: ReturnType<typeof setTimeout> | undefined;
+const scheduleApptSync = () => { clearTimeout(apptTimer); apptTimer = setTimeout(() => void syncAppointments(), 300); };
+
+/** Re-read team + calendar connection status (after the Google consent screen or a disconnect). */
+export async function refreshTeam() {
+  if (!isLive()) return;
+  const { api } = await import("./api");
+  try { applyServer(await api("/me")); } catch { /* offline: keep what we have */ }
+}
+
+async function calFail(e: unknown): Promise<CalResult> {
+  const { ApiError } = await import("./api");
+  if (e instanceof ApiError) return { ok: false, error: e.message, conflicts: (e.details as { conflicts?: CalConflict[] } | undefined)?.conflicts };
+  return { ok: false, error: "Couldn't reach Google Calendar. Nothing was changed; try again." };
+}
+
+/** I3.4: the employee's busy times (Google + platform) for the chosen window. */
+export async function fetchBusy(memberId: string, from: number, to: number): Promise<CalConflict[]> {
+  const { api } = await import("./api");
+  const q = new URLSearchParams({ memberId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+  return (await api<{ busy: CalConflict[] }>(`/calendar/busy?${q}`)).busy;
+}
+
+/** Book, move and cancel work in both modes: the server (Google) in live mode, the local demo otherwise. */
+export async function bookAppt(a: Omit<Appointment, "id" | "status">, force = false): Promise<CalResult> {
+  if (!isLive()) return bookAppointment(a, force);
+  const { api } = await import("./api");
+  try {
+    await api("/appointments", { method: "POST", body: { contactId: a.contactId, oppId: a.oppId, memberId: a.memberId, title: a.title, start: new Date(a.start).toISOString(), end: new Date(a.end).toISOString(), timezone: a.tz, force } });
+    await Promise.all([syncAppointments(), syncCrm(), syncLeads()]);   // history and lead acknowledgement change too
+    return { ok: true };
+  } catch (e) { return calFail(e); }
+}
+export async function moveAppt(id: string, start: number, end: number, force = false): Promise<CalResult> {
+  if (!isLive()) return rescheduleAppointment(id, start, end);
+  const { api } = await import("./api");
+  try {
+    await api(`/appointments/${id}`, { method: "PATCH", body: { start: new Date(start).toISOString(), end: new Date(end).toISOString(), force } });
+    await Promise.all([syncAppointments(), syncCrm()]);
+    return { ok: true };
+  } catch (e) { return calFail(e); }
+}
+export async function cancelAppt(id: string): Promise<CalResult> {
+  if (!isLive()) { cancelAppointment(id); return { ok: true }; }
+  const { api } = await import("./api");
+  try {
+    const r = await api<{ warning?: string | null }>(`/appointments/${id}/cancel`, { method: "POST" });
+    await Promise.all([syncAppointments(), syncCrm()]);
+    return { ok: true, warning: r.warning };
+  } catch (e) { return calFail(e); }
+}
+
+/** I3.1: ask the server for Google's consent URL (it holds the client secret) and go there. */
+export async function connectGoogleCalendar(): Promise<{ ok: boolean; error?: string }> {
+  const { api } = await import("./api");
+  try { const { url } = await api<{ url: string }>("/calendar/connect", { method: "POST" }); window.location.assign(url); return { ok: true }; }
+  catch (e) { return { ok: false, error: e instanceof Error ? e.message : "Couldn't start the Google connection." }; }
+}
+export async function disconnectGoogleCalendar(memberId?: string): Promise<{ ok: boolean; error?: string }> {
+  const { api } = await import("./api");
+  try { await api("/calendar/disconnect", { method: "POST", body: memberId ? { memberId } : {} }); await refreshTeam(); return { ok: true }; }
+  catch (e) { return { ok: false, error: e instanceof Error ? e.message : "Couldn't disconnect." }; }
+}
 
 /* ---------- integrations page ---------- */
 const providers: Record<IntegrationKey, string[]> = { messaging: ["Twilio WhatsApp Sandbox", "Twilio SMS"], payments: ["Stripe (test mode)"], calendar: ["Google Calendar (OAuth 2.0)"], notifications: ["Slack", "Telegram bot", "Email (Resend)"] };

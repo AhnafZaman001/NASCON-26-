@@ -11,7 +11,7 @@ export type ServerWorkspace = {
 };
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public fields?: Record<string, string>) {
+  constructor(public status: number, message: string, public fields?: Record<string, string>, public details?: unknown) {
     super(message);
   }
 }
@@ -34,7 +34,7 @@ export async function api<T = ServerWorkspace>(path: string, init: { method?: st
     throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
   }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, json.error ?? `Request failed (${res.status}).`, json.details?.fields);
+  if (!res.ok) throw new ApiError(res.status, json.error ?? `Request failed (${res.status}).`, json.details?.fields, json.details);
   return json as T;
 }
 

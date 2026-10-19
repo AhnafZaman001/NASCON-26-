@@ -46,7 +46,7 @@ export interface Payment {
 }
 export interface Appointment {
   id: string; contactId: string; oppId: string | null; memberId: string; title: string;
-  start: number; end: number; status: "confirmed" | "cancelled"; tz: string;
+  start: number; end: number; status: "confirmed" | "cancelled"; tz: string; link?: string | null;
 }
 export interface Activity {
   id: string; contactId: string; oppId?: string; at: number; actor: string;

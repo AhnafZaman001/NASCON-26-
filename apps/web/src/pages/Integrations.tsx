@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useApp } from "@/lib/app";
-import { connectIntegration, disconnectIntegration, providerOptions, setFailNext, setMemberCalendar, setMyNotifyDest } from "@/lib/store";
+import { connectIntegration, disconnectIntegration, providerOptions, setFailNext, refreshTeam, setMemberCalendar, setMyNotifyDest } from "@/lib/store";
 import { ago, fmtTime } from "@/lib/utils";
 import { Badge, Button, Card, Empty, Field, Input, PageHeader, Select, toast } from "@/components/ui";
+import GoogleCalendarCard from "@/components/GoogleCalendarCard";
 import type { IntegrationKey } from "@/lib/types";
 
 const INFO: Record<IntegrationKey, { title: string; does: string; limits: string }> = {
@@ -15,6 +17,13 @@ const tone = { connected: "ok", error: "bad", not_connected: "neutral" } as cons
 
 export default function Integrations() {
   const { s, me, can } = useApp(); const [prov, setProv] = useState<Record<string, string>>({});
+  const [qs, setQs] = useSearchParams(); const [ver, setVer] = useState(0); const live = s.mode === "live";
+  // Back from Google's consent screen: /integrations?calendar=connected|denied|error&reason=...
+  useEffect(() => {
+    const c = qs.get("calendar"); if (!c) return;
+    toast(c === "connected" ? "Google Calendar connected." : qs.get("reason") ?? "Couldn't connect Google Calendar.", c === "connected" ? "ok" : c === "denied" ? "info" : "bad");
+    void refreshTeam().then(() => setVer((v) => v + 1)); setQs({}, { replace: true });
+  }, [qs, setQs]);
   if (!me) return null;
   const manage = can("integrations.manage");
   return (
@@ -22,6 +31,7 @@ export default function Integrations() {
       <PageHeader title="Integrations" sub={`Credentials are held by the server for ${s.workspace.name} only. Secrets never reach the browser.`} />
       <div className="grid gap-4 md:grid-cols-2">
         {(Object.keys(INFO) as IntegrationKey[]).map((k) => {
+          if (k === "calendar" && live) return <GoogleCalendarCard key={k} version={ver} />;
           const i = s.integrations[k];
           return (
             <Card key={k} className="space-y-3">
@@ -41,7 +51,7 @@ export default function Integrations() {
       <Card className="mt-4"><h2 className="mb-2 font-semibold">My alert destination</h2>
         <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("dest") as string; setMyNotifyDest(v.trim()); toast("Saved.", "ok"); }}>
           <Field label="Slack user / Telegram chat / email" hint="Where you're alerted when a lead escalates to you.">{(id) => <Input id={id} name="dest" defaultValue={me.notifyDest} />}</Field><Button type="submit">Save</Button></form></Card>
-      {manage && <Card className="mt-4"><h2 className="mb-2 font-semibold">Employee calendar connections</h2>
+      {manage && !live && <Card className="mt-4"><h2 className="mb-2 font-semibold">Employee calendar connections</h2>
         <ul className="space-y-1.5 text-sm">{s.members.map((m) => <li key={m.id} className="flex items-center justify-between gap-2"><span>{m.name}</span><span className="flex items-center gap-2"><Badge tone={m.calendar === "connected" ? "ok" : "warn"}>{m.calendar.replace("_", " ")}</Badge>
           {m.calendar !== "connected" ? <Button size="sm" variant="secondary" onClick={() => setMemberCalendar(m.id, "connected")}>Mark connected (demo)</Button> : <Button size="sm" variant="ghost" onClick={() => setMemberCalendar(m.id, "none")}>Disconnect</Button>}</span></li>)}</ul></Card>}
       <Card className="mt-4"><h2 className="mb-2 font-semibold">Synchronization history</h2>

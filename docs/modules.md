@@ -18,7 +18,7 @@ Requirement IDs (F, I, Q) refer to the problem statement. Status reflects `main`
 | M6 | Operational dashboard | F5.1–F5.5, Section 7, Q12 | ✅ 0007 | ✅ | — | M2, M4, M8, M9 |
 | M7 | Messaging: Twilio WhatsApp | I1.1–I1.9 | ✅ 0004, 0005 | ✅ live | ✅ | M2, M4, M11 |
 | M8 | Payments: Stripe | I2.1–I2.8 | ✅ 0004, 0005 | ✅ (simulated) | — | M2, M11 |
-| M9 | Calendar: Google OAuth | I3.1–I3.7 | ✅ 0004, 0005 | ✅ (simulated) | — | M1, M2, M11 |
+| M9 | Calendar: Google OAuth | I3.1–I3.7 | ✅ 0004, 0005, 0019 | ✅ live (demo mode keeps the simulation) | ✅ `routes/calendar.ts` | M1, M2, M11 |
 | M10 | Notifications: email | I4.1–I4.4 | ✅ 0005, 0011 | partial | partial (worker) | M4, M11 |
 | M11 | Integrations hub (shared) | I5.1–I5.8 | ✅ 0005 | ✅ | — | M1, M5 |
 | M12 | Quality & UX (cross-cutting) | Q3, Q4, Q7–Q10 | — | partial | — | all |
@@ -112,6 +112,13 @@ Shared plumbing everyone else builds on.
 - I3.5 Store UTC, display in employee time zone
 - I3.6 Reschedule / cancel updates Google event + activity history
 - I3.7 Admins see connection status; unconnected employee cannot be booked
+
+**M9 implementation notes**
+- Each employee connects their own Google account from Integrations (`POST /api/calendar/connect` returns the consent URL; Google redirects to `GET /api/calendar/callback`, protected by a signed 10-minute `state`).
+- Tokens: AES-256-GCM in `integration_secrets` (`TOKEN_ENCRYPTION_KEY`), refreshed automatically; `invalid_grant`/401 flips the member to `needs_reconnect` (shown in the UI).
+- Booking checks Google free/busy + platform appointments (409 with the conflicts unless `force`), creates the event with a deterministic id (retry-safe), then inserts the row; an exclusion constraint stops two normal bookings taking one slot.
+- Times: stored as UTC `timestamptz`; the booking zone is kept on the row; the employee's zone is read from their Google calendar on connect (`members.timezone`).
+- Needs migration 0019 applied before the calendar endpoints work (they fail alone; the rest of the app is unaffected).
 
 ## M10 · Notifications: transactional email (I4 choice)
 - I4.1 New owner gets an email within the minute of escalation
