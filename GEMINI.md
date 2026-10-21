@@ -1,2 +1,2 @@
 # GEMINI.md
-Read `AGENTS.md`, then `PROJECT_STATUS.md` (the single source of truth) before doing anything, and update `PROJECT_STATUS.md` when you finish.
+Read `PROMPT.md` (repo root) and follow it exactly before doing anything.

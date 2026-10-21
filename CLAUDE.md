@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-> **Before any work: read `PROJECT_STATUS.md` (repo root), the single source of truth for what this product is, all requirements, links, architecture, what is built and what is left. After any work: update it in the same commit.**
+> **Before any work: read `PROMPT.md` and follow it. It points you to `PROJECT_STATUS.md` (repo root), the single source of truth for what this product is, all requirements, links, architecture, what is built and what is left. After any work: update it in the same commit.**
 
 NASCON '26 hackathon project ("Lead Shield"): a CRM with guaranteed lead ownership, escalation, payments, calendar and integrations. Several people (and AI tools) push to `main` directly. **Always `git pull` before you start and before you commit.**
 

@@ -1,6 +1,6 @@
 # PROJECT STATUS: single source of truth
 
-> **Rules for every AI agent that works on this repo (read this block first):**
+> **Rules for every AI agent that works on this repo (read this block first; `PROMPT.md` is the step-by-step procedure):**
 > 1. **Before you build, change or plan anything, read this whole file.** It replaces the problem statement, the
 >    requirements list, the hosting and database details and any verbal briefing. You should not need to ask the
 >    human for context that is written here. If something is missing, ask once, then write the answer here.
