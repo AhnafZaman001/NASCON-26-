@@ -1,18 +1,12 @@
-# AGENTS.md - shared context for every agent
+# AGENTS.md - read this first
 
-This repo is the single source of truth for the NASCON '26 "Lead Shield" CRM. Several agents (Claude, ChatGPT/Codex,
-Gemini, Kimi, Cursor...) and people work on it at the same time. You get your task from the person who started you;
-this file only gives you the context.
+**Before you build, change or plan anything, read `PROJECT_STATUS.md` (repo root) in full.**
+It is the single source of truth: what the product is, every requirement and metric definition, the links and
+environment, the architecture and decisions, what is built, and what is left. You do not need the problem statement,
+a rubric or a verbal briefing; it is all in that file.
 
-## Read for context
-- `CLAUDE.md` - architecture, commands, API and database rules. It applies to every agent, whatever its name.
-- `docs/modules.md` - the problem statement split into modules, with requirement IDs (F / I / Q) and status.
-- `docs/DECISIONS.md` - choices already made, so you don't reopen them.
+**When you finish, update `PROJECT_STATUS.md` in the same commit as your code** (Built, Left, any corrected facts,
+and a new entry in its Update log). Never put secrets in git or in that file.
 
-## Working conventions (several people push to `main`)
-- `git pull --rebase` before you start and before every commit. Small commits. Never force-push.
-- Before pushing: `npm run build && npm run lint && npm run typecheck`.
-- After ANY `apps/api` change run `npm run bundle:api` and commit `apps/api/dist/app.cjs`.
-- Database changes: add a new numbered file in `supabase/migrations/` (never edit an applied one), then regenerate `supabase/setup_all.sql`.
-- Learned a gotcha or made a decision the next agent needs? Add one or two lines to `docs/DECISIONS.md`.
-- Never put secrets in git, code or chat. Keys live in `.env` files and Vercel env vars only.
+Then read `CLAUDE.md` for commands and coding rules (API, frontend, database, env files). Both files apply to every
+agent, whatever its name. Several people and agents push to `main`: `git pull --rebase` before you start and before every commit.

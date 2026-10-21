@@ -1,5 +1,7 @@
 # Modules
 
+> Reference only. Its status columns can be stale: `PROJECT_STATUS.md` at the repo root is authoritative.
+
 The problem statement ("Unified Business Management Platform") split into buildable modules.
 Requirement IDs (F, I, Q) refer to the problem statement. Status reflects `main` on 2026-10-18.
 

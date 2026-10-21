@@ -1,2 +1,2 @@
 # GEMINI.md
-Read `AGENTS.md` first, then `CLAUDE.md`. They are the shared project context for every agent on this repo.
+Read `AGENTS.md`, then `PROJECT_STATUS.md` (the single source of truth) before doing anything, and update `PROJECT_STATUS.md` when you finish.
