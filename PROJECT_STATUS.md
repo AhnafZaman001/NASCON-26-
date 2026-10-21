@@ -295,5 +295,5 @@ Edit sections 4, 5, 6, 7 so they stay true, then append to the log below. One en
 ## 10. Update log (append only, newest at the bottom)
 
 - **Baseline (commit `ad7539a`):** file created from an audit of the repo. Records everything built through Google Calendar
-  (`97dffe8`), the agent-context files (`AGENTS.md`, `GEMINI.md`, `docs/DECISIONS.md`) and the remaining work in section 7.
+  (`97dffe8`), the agent-context files (`AGENTS.md`, `GEMINI.md`; decisions now live in section 5) and the remaining work in section 7.
   Verify: `npm run build`, `npm run typecheck`, `npm run test:engine -w @nascon/web`; `supabase/checks.sql` on the database.
