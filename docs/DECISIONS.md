@@ -14,4 +14,4 @@
 - **Contact vs lead vs opportunity:** a contact is the person, a lead is one enquiry that must be protected, an opportunity is the deal.
 
 ## Open decisions
-- Remove Redis/BullMQ and send email from the API? (recommended; see T2)
+- Remove Redis/BullMQ and send email from the API?
