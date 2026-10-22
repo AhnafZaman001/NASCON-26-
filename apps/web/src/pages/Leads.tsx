@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useSearchParams } from "react-router-dom";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { useApp } from "@/lib/app";
 import { acknowledge, createManualLead, nameOf, reassignLead, recoveryItems } from "@/lib/store";
@@ -12,6 +12,8 @@ function LeadsInner() {
   const { s, me, can, companyWide } = useApp(); const [q] = useSearchParams(); useNow(1000);
   const [tab, setTab] = useState<"mine" | "all" | "recovery">((q.get("tab") as "mine" | "all" | "recovery") || "mine");
   const [open, setOpen] = useState(false); const [f, setF] = useState({ name: "", phone: "", email: "" }); const [err, setErr] = useState("");
+  const focusId = q.get("lead");   // alert emails link here (I4.2): /leads?lead=<id>
+  useEffect(() => { if (focusId) document.getElementById(`lead-${focusId}`)?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [focusId, s.leads.length]);
   if (!me) return null;
   const today = q.get("today") === "1";
   const rec = recoveryItems(s).filter((r) => companyWide || r.lead.ownerId === me.id);
@@ -35,7 +37,7 @@ function LeadsInner() {
           {rows.map((l) => {
             const owner = s.members.find((m) => m.id === l.ownerId); const reasons = recMap.get(l.id);
             return (
-              <li key={l.id}><Card className="flex flex-wrap items-center gap-3">
+              <li key={l.id} id={`lead-${l.id}`}><Card className={`flex flex-wrap items-center gap-3${l.id === focusId ? " ring-2 ring-brand" : ""}`}>
                 <div className="min-w-0 flex-1">
                   <Link to={`/contacts/${l.contactId}`} className="font-medium hover:underline">{contactName(l.contactId)}</Link>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">

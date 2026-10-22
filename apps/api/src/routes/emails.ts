@@ -1,28 +1,26 @@
 import { Router } from "express";
-import { enqueueUserEmails } from "@nascon/queue";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { requireUser, type AuthedRequest } from "../middleware/auth.ts";
+import { must } from "../lib/http.ts";
+import { drainEmails } from "../lib/mailer.ts";
+import { can, ctxOf, requireMember, requirePerm } from "../middleware/auth.ts";
 
+// I4: alert emails are queued by the database (migration 0020) and sent by lib/mailer.ts.
 export const emails = Router();
 
-// POST /api/emails/send   Body (optional): { "userId": "<uuid>" } - defaults to the caller.
-// Queuing for someone else needs owner/admin in the same workspace. apps/worker does the send.
-emails.post("/send", requireUser, async (req, res) => {
-  const me = (req as AuthedRequest).user;
-  const userId: string = req.body?.userId ?? me.id;
+// GET /api/emails - recent alerts. Admins (integrations.manage) see the whole workspace incl. failures; others only their own.
+emails.get("/", requireMember, async (req, res) => {
+  const ctx = ctxOf(req);
+  let q = supabaseAdmin()
+    .from("emails")
+    .select("id, to_email, subject, status, attempts, max_attempts, last_error, created_at, sent_at")
+    .eq("workspace_id", ctx.member.workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (!can(ctx, "integrations.manage")) q = q.eq("user_id", ctx.user.id);
+  res.json({ emails: must(await q) });
+});
 
-  if (userId !== me.id) {
-    const { data: rows } = await supabaseAdmin()
-      .from("members")
-      .select("user_id, workspace_id, level")
-      .in("user_id", [me.id, userId]);
-    const caller = rows?.find((r) => r.user_id === me.id);
-    const target = rows?.find((r) => r.user_id === userId);
-    const allowed = caller && target && caller.workspace_id === target.workspace_id
-      && (caller.level === "owner" || caller.level === "admin");
-    if (!allowed) return void res.status(403).json({ error: "forbidden" });
-  }
-
-  const job = await enqueueUserEmails(userId);
-  res.status(202).json({ queued: true, jobId: job.id, userId });
+// POST /api/emails/send - send whatever is due right now ("Send now" button, also handy for testing).
+emails.post("/send", requireMember, requirePerm("integrations.manage"), async (_req, res) => {
+  res.json(await drainEmails(50));
 });

@@ -5,6 +5,7 @@ import { connectIntegration, disconnectIntegration, providerOptions, setFailNext
 import { ago, fmtTime } from "@/lib/utils";
 import { Badge, Button, Card, Empty, Field, Input, PageHeader, Select, toast } from "@/components/ui";
 import GoogleCalendarCard from "@/components/GoogleCalendarCard";
+import AlertEmails from "@/components/AlertEmails";
 import type { IntegrationKey } from "@/lib/types";
 
 const INFO: Record<IntegrationKey, { title: string; does: string; limits: string }> = {
@@ -51,6 +52,7 @@ export default function Integrations() {
       <Card className="mt-4"><h2 className="mb-2 font-semibold">My alert destination</h2>
         <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("dest") as string; setMyNotifyDest(v.trim()); toast("Saved.", "ok"); }}>
           <Field label="Slack user / Telegram chat / email" hint="Where you're alerted when a lead escalates to you.">{(id) => <Input id={id} name="dest" defaultValue={me.notifyDest} />}</Field><Button type="submit">Save</Button></form></Card>
+      {live && <AlertEmails canSend={manage} />}
       {manage && !live && <Card className="mt-4"><h2 className="mb-2 font-semibold">Employee calendar connections</h2>
         <ul className="space-y-1.5 text-sm">{s.members.map((m) => <li key={m.id} className="flex items-center justify-between gap-2"><span>{m.name}</span><span className="flex items-center gap-2"><Badge tone={m.calendar === "connected" ? "ok" : "warn"}>{m.calendar.replace("_", " ")}</Badge>
           {m.calendar !== "connected" ? <Button size="sm" variant="secondary" onClick={() => setMemberCalendar(m.id, "connected")}>Mark connected (demo)</Button> : <Button size="sm" variant="ghost" onClick={() => setMemberCalendar(m.id, "none")}>Disconnect</Button>}</span></li>)}</ul></Card>}

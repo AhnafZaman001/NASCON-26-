@@ -195,7 +195,7 @@ You do not need any of them to read or edit this repo; they only matter for runn
 
 **Environment variable names** (copy each `.env.example`, files are gitignored):
 - `apps/web/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `apps/api/.env`: `PORT`, `CORS_ORIGIN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `REDIS_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY` (optional: `GOOGLE_REDIRECT_URI`, `WEB_URL`, `PUBLIC_API_URL`)
+- `apps/api/.env`: `PORT`, `CORS_ORIGIN`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `REDIS_URL` (only the optional `apps/worker` uses it), `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`, `CRON_SECRET` (shared secret for `/api/jobs/send-emails`), `WEB_URL` (base URL for links inside alert emails) (optional: `GOOGLE_REDIRECT_URI`, `PUBLIC_API_URL`, `EMAIL_SWEEP=off`)
 - `apps/worker/.env`: `SUPABASE_*`, `REDIS_URL`, `SMTP_*`
 - Vercel project: the same API variables must be set there.
 
@@ -230,23 +230,23 @@ on Next.js and was replaced by Vite + Express; do not bring Next.js back.)
 - **Webhook safety.** Twilio webhooks verify the signature and are idempotent through `integration_events`/`messages.provider_sid` uniqueness. A 5-second poller of Twilio's message log also exists so it works on localhost without a tunnel.
 - **Realtime (Q11).** The web store subscribes to Supabase realtime on `leads`, `messages`, `appointments` and re-syncs from the API.
 - **Two frontend modes.** `apps/web/src/lib/store.ts` has *live* mode (signed in with Supabase Auth, data from the API) and *demo* mode (sample workspace in localStorage, no account). Demo mode mirrors server rules for show purposes; the real backend is authoritative.
-- **Email transport is SMTP via nodemailer** (Gmail app password in the event setup). Credentials only in env.
+- **Email alerts (I4) without Redis.** Migration 0020: a trigger on `notification_outbox` (written by `assign_lead` on every assignment/escalation) queues a row in `emails` (lead, source, reason, deadline, link with a `{{WEB_URL}}` placeholder; destination = the address in the member's "My alert destination" if it contains `@`, else their account email). The API sends them with nodemailer (`apps/api/src/lib/mailer.ts`): `claim_due_emails()` claims rows with SKIP LOCKED, failures retry after `attempts x 30 s` up to `max_attempts` (3), then become `failed`; every attempt is logged in `integration_events` (provider `email`). Triggers: `pg_cron` runs `kick_email_sender()` every 10 s, which calls `POST /api/jobs/send-emails` (Bearer `CRON_SECRET`) through `pg_net` when mail is waiting; a long-lived API also sends every 5 s; admins can press "Send now". An alert failure never blocks lead assignment (the trigger swallows its own errors). SMTP via nodemailer (Gmail app password in the event setup); credentials only in env. `apps/worker` (BullMQ) is no longer used by the alert path.
 - **Vercel deployment.** `apps/api` is deployed pre-bundled: after ANY `apps/api` change run `npm run bundle:api` and commit `apps/api/dist/app.cjs`, or production serves stale code.
-- **Database change rule.** New numbered file in `supabase/migrations/` (next is `20261018000020_*.sql`), never edit an applied migration, then regenerate `supabase/setup_all.sql`.
+- **Database change rule.** New numbered file in `supabase/migrations/` (next is `20261018000021_*.sql`), never edit an applied migration, then regenerate `supabase/setup_all.sql`.
 
-Database objects (23 tables, RLS on all): workspaces, roles, members, companies, contacts, pipelines, stages,
+Database objects (24 tables, RLS on all): workspaces, roles, members, companies, contacts, pipelines, stages,
 stage_required_fields, field_definitions, opportunities, saved_lists, leads, lead_assignments, activities, messages,
-payments, appointments, integrations, integration_secrets, integration_events, notification_outbox, emails, audit_log.
+payments, appointments, integrations, integration_secrets, integration_events, notification_outbox, emails, private_config (server-only settings, no grants), audit_log.
 Views: opportunities_v, recovery_queue_v, leads_v. Key functions: has_perm, current_member_id, current_workspace_id,
 pick_assignee, assign_lead, acknowledge_lead, escalate_expired_leads, set_member_status, reassign_lead, delete_stage,
 dashboard_metrics (written, not yet used by the app), bootstrap_workspace, `api_*` write functions (0014 to 0017),
-claim_user_emails. Migrations 0001 to 0019 are in `supabase/migrations/`.
+claim_user_emails, claim_due_emails, outbox_to_email, kick_email_sender. Migrations 0001 to 0020 are in `supabase/migrations/`.
 
 ---
 
 ## 6. Built so far (what exists and how)
 
-Baseline: commit `ad7539a`. Frontend pages: login, signup, dashboard, leads, contacts, pipeline, inbox, payments,
+Baseline: commit `ad7539a` (email alerts added after, see Update log). Frontend pages: login, signup, dashboard, leads, contacts, pipeline, inbox, payments,
 calendar, integrations, audit, settings, public lead capture.
 
 - **Accounts, roles, permissions (F1, Q1, Q2): live.** Supabase Auth in the web app; `POST /api/auth/signup`, `GET /api/me`, `/api/workspace`, `/api/members`, `/api/roles`. Workspace payload from `/api/me` feeds the store. Permission editor and invites in Settings.
@@ -257,7 +257,7 @@ calendar, integrations, audit, settings, public lead capture.
 - **Messaging, Twilio WhatsApp (I1): live.** Inbound webhook with signature validation and a 5 s poller, send, retry of failed messages, delivery status, contact matching, conversation view in Inbox. (Per-workspace credentials are NOT done: Twilio credentials are currently one set of server env variables.)
 - **Calendar, Google (I3): live.** `/api/calendar/{status,connect,callback,disconnect,busy}`, `/api/appointments` (+ PATCH and `/:id/cancel`). OAuth tokens AES-GCM encrypted in `integration_secrets`; free/busy conflict check; book, move, cancel on the real Google Calendar. Migration 0019.
 - **Realtime (Q11):** Supabase realtime subscriptions on leads, messages, appointments.
-- **Email groundwork (I4):** `emails` table (0011), `claim_user_emails`, BullMQ worker with nodemailer, `POST /api/emails/send`. Per-user destination exists in settings. NOT yet wired to escalation (see Left).
+- **Email alerts (I4, F3.9): code complete, needs live setup + end-to-end test.** Every assignment/escalation queues an email (migration 0020), the API sends it with retries and logs it, admins see recent alerts with failure reasons and a "Send now" button (Integrations page, `components/AlertEmails.tsx`, `GET/POST /api/emails`), and the link in the email opens `/leads?lead=<id>` (the Leads page scrolls to and highlights that lead). Per-user destination = "My alert destination". Verified locally by the author: trigger content and destination override, claim/skip-locked/stale release, alert failure does not block assignment, privileges (browsers cannot read `private_config` or call the claim function), real SMTP delivery to a local SMTP server, retry/backoff/final-failure and unconfigured-SMTP paths (with a fake database client). NOT verified: delivery through Gmail/real Supabase/pg_net on the live project.
 - **Deployment config:** `vercel.json` services mode; API pre-bundled.
 - **Demo mode** in the frontend (localStorage sample workspace) including a simulated Payments page.
 - **Checks that passed at baseline:** `npm run build` (web), `npm run typecheck` (api + worker), engine test `npm run test:engine -w @nascon/web`. `npm run lint` FAILS (config issue, see Left).
@@ -267,7 +267,7 @@ calendar, integrations, audit, settings, public lead capture.
 ## 7. Left to build (ordered by impact; also read "Known gaps")
 
 1. **Stripe payments (I2.1 to I2.8): not started on the server.** The Payments page is simulated. Needs: checkout session/link creation per opportunity, webhook with signature check and idempotency via `integration_events`, statuses paid/failed/expired/refunded (partial refunds), collected vs projected revenue, `opportunities.payment_status` updates, payment rows with provider reference and requesting employee, no card data stored. The `payments` table exists (0004).
-2. **Email alerts on assignment/escalation (I4.1 to I4.4, F3.9): not wired.** Nothing inserts into `emails` when a lead is assigned or escalated, and the worker runs only when triggered by hand and needs Redis, which the Vercel setup does not provide. Open decision: drop Redis/BullMQ and send from the API (recommended), with alert content (lead, source, reason, link), limited retries, and failures visible to Admins.
+2. **Email alerts: finish setup and test live.** Code is done (see Built). To go live: apply migration 0020 (or the regenerated `setup_all.sql` on an empty DB); enable the `pg_net` and `pg_cron` extensions in the Supabase dashboard; set `SMTP_*`, `MAIL_FROM`, `CRON_SECRET`, `WEB_URL` in the API environment (Vercel too); run once in the SQL editor `insert into private_config (key, value) values ('email_job_url','https://<domain>/api/jobs/send-emails'),('cron_secret','<same as CRON_SECRET>') on conflict (key) do update set value = excluded.value;`. Then test: lead capture -> assignee gets an email within ~10 s; let it escalate -> new owner gets `[Escalated]` with a working link. Also wire the Integrations "Notifications" status card to real email state in live mode (unverified).
 3. **Public deployment and webhook URLs:** confirm the Vercel project is live, set API env vars there, register the Twilio and Stripe webhook URLs and add the production Google OAuth redirect URI (`<domain>/api/calendar/callback`). Record the production URL in section 4.
 4. **Dashboard from the database (F5, Q12):** no dashboard API; figures are computed in the browser from synced state. `dashboard_metrics()` (SQL) exists but is unused. Needs one server-side definition for every figure, drill-down links, role-aware scope, show/hide remembered.
 5. **Integrations hub (I5):** page exists but there is no status API. Needs per-workspace credentials for Twilio (and Stripe) encrypted in `integration_secrets`, success AND failure logging in `integration_events` for every provider, visible recent errors, stated limits, audit of connection changes.
@@ -297,3 +297,4 @@ Edit sections 4, 5, 6, 7 so they stay true, then append to the log below. One en
 - **Baseline (commit `ad7539a`):** file created from an audit of the repo. Records everything built through Google Calendar
   (`97dffe8`), the agent-context files (`AGENTS.md`, `GEMINI.md`; decisions now live in section 5) and the remaining work in section 7.
   Verify: `npm run build`, `npm run typecheck`, `npm run test:engine -w @nascon/web`; `supabase/checks.sql` on the database.
+- **Email alerts (I4) (this commit):** added migration `20261018000020_escalation_emails.sql` (outbox -> `emails` trigger, `claim_due_emails`, `private_config`, `kick_email_sender` + cron job `nascon-send-emails`), `apps/api/src/lib/mailer.ts` (nodemailer sender with retry/backoff and `integration_events` logging), `routes/jobs.ts` (`POST /api/jobs/send-emails`, `CRON_SECRET`), rewrote `routes/emails.ts` (`GET /api/emails`, `POST /api/emails/send`, no Redis), a 5 s send timer in `apps/api/src/index.ts` for long-lived servers, `components/AlertEmails.tsx` on the Integrations page, `?lead=` highlight on the Leads page, regenerated `supabase/setup_all.sql` (0001 to 0020) and rebuilt `apps/api/dist/app.cjs`. Verify: apply 0020, run the sample in section 7 item 2 to configure the scheduler, create a lead and watch Integrations > Alert emails. Gotchas: `{{WEB_URL}}` in queued bodies is replaced at send time from `WEB_URL`; without `pg_net` + `private_config` nothing sends on Vercel (only a long-lived API or "Send now" will); `apps/worker` and Redis are no longer part of the alert path.
