@@ -7,6 +7,7 @@ import { ago, fmtTime, money } from "@/lib/utils";
 import { Badge, Button, Card, Countdown, Empty, Field, Input, Select, Textarea, toast, useNow } from "@/components/ui";
 import type { CustomField } from "@/lib/types";
 import RequestPayment from "@/components/RequestPayment";
+import { paymentMoney } from "@/lib/payments";
 
 function CustomInput({ f, value, onChange, disabled }: { f: CustomField; value: string; onChange: (v: string) => void; disabled?: boolean }) {
   return (
@@ -76,7 +77,7 @@ export default function ContactPage() {
                       <Field label="Stage">{(fid) => <Select id={fid} disabled={!edit} value={o.stageId} onChange={(e) => { const r = moveOpp(o.id, e.target.value); if (!r.ok) toast(r.error ?? "", "bad"); }}>{p?.stages.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</Select>}</Field>
                       {fields.map((f) => <CustomInput key={f.id} f={f} disabled={!edit} value={o.custom[f.id] ?? ""} onChange={(v) => setOppCustom(o.id, f.id, v)} />)}
                     </div>
-                    <div className="mt-2 flex gap-2"><Button size="sm" variant="secondary" onClick={() => setPay(o.id)}><CreditCard size={14} />Request payment</Button>
+                    <div className="mt-2 flex gap-2">{edit && seeVal && <Button size="sm" variant="secondary" onClick={() => setPay(o.id)}><CreditCard size={14} />Request payment</Button>}
                       <Link to={`/calendar?contact=${c.id}&opp=${o.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface2 px-2.5 py-1.5 text-xs font-medium"><CalendarPlus size={14} />Book appointment</Link></div>
                   </li>);
               })}</ul>)}
@@ -101,7 +102,7 @@ export default function ContactPage() {
         <div className="space-y-4 lg:col-span-2">
           <Card><h2 className="mb-3 font-semibold">Payments & appointments</h2>
             {pays.length + appts.length === 0 && <p className="text-sm text-muted">Nothing yet.</p>}
-            <ul className="space-y-2 text-sm">{pays.map((p) => <li key={p.id} className="flex items-center justify-between gap-2"><span>{mask(seeVal, money(p.amount, p.currency))} <span className="text-xs text-muted">{p.ref}</span></span><Badge tone={p.status === "paid" ? "ok" : p.status === "pending" ? "warn" : "bad"}>{p.status}</Badge></li>)}
+            <ul className="space-y-2 text-sm">{pays.map((p) => <li key={p.id} className="flex flex-wrap items-center justify-between gap-2"><span>{mask(seeVal && !p.amountHidden, paymentMoney(p.amount, p.currency))} <span className="break-all text-xs text-muted">{p.ref}</span>{(p.refundedAmount ?? 0) > 0 && <span className="block text-xs text-muted">Refunded {mask(seeVal && !p.amountHidden, paymentMoney(p.refundedAmount!, p.currency))}</span>}</span><Link to="/payments" className="hover:underline"><Badge tone={p.status === "paid" ? "ok" : p.status === "pending" || p.status === "partially_refunded" ? "warn" : "bad"}>{p.status.replaceAll("_", " ")}</Badge></Link></li>)}
               {appts.map((a) => <li key={a.id} className="flex items-center justify-between gap-2"><span>{a.title}<span className="block text-xs text-muted">{fmtTime(a.start)} · {nameOf(s, a.memberId)}</span></span><Badge tone={a.status === "confirmed" ? "ok" : "neutral"}>{a.status}</Badge></li>)}</ul></Card>
           <Card>
             <h2 className="mb-3 font-semibold">Activity</h2>

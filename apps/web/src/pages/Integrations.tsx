@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useApp } from "@/lib/app";
 import { connectIntegration, disconnectIntegration, providerOptions, setFailNext, refreshTeam, setMemberCalendar, setMyNotifyDest } from "@/lib/store";
 import { ago, fmtTime } from "@/lib/utils";
@@ -33,6 +33,12 @@ export default function Integrations() {
       <div className="grid gap-4 md:grid-cols-2">
         {(Object.keys(INFO) as IntegrationKey[]).map((k) => {
           if (k === "calendar" && live) return <GoogleCalendarCard key={k} version={ver} />;
+          if (k === "payments") return <Card key={k} className="space-y-3">
+            <div className="flex items-center justify-between"><h2 className="font-semibold">Payments · Demo</h2><Badge tone="neutral">Simulation</Badge></div>
+            <p className="text-sm">Demonstrate payment requests, success, failure, expiry and refunds without a merchant account.</p>
+            <p className="text-xs text-muted">No real charges or messages. Payment data stays in this browser only.</p>
+            <Link to="/payments" className="inline-flex rounded-lg border border-line bg-surface2 px-3 py-2 text-sm font-medium">Open payments</Link>
+          </Card>;
           const i = s.integrations[k];
           return (
             <Card key={k} className="space-y-3">

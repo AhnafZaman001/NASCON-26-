@@ -1,3 +1,4 @@
+import { collectedPayment, paymentMoney } from "@/lib/payments";
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
@@ -25,7 +26,8 @@ export default function Dashboard() {
   const esc = myLeads.flatMap((l) => l.history).filter((h) => h.kind === "escalate" && h.at > t - 86400_000).length;
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
   const pays = s.payments.filter((p) => (companyWide || p.requestedBy === me.id) && p.at >= monthStart);
-  const collected = pays.filter((p) => p.status === "paid").reduce((a, p) => a + p.amount, 0);
+  const currencies = [...new Set(pays.map((p) => p.currency))];
+  const collected = currencies.map((c) => paymentMoney(pays.filter((p) => p.currency === c).reduce((a, p) => a + collectedPayment(p), 0), c)).join(" · ") || "—";
   const appts = s.appointments.filter((a) => a.status === "confirmed" && a.start > t && a.start < t + 7 * 86400_000 && (companyWide || a.memberId === me.id));
   const openOpps = s.opps.filter((o) => (companyWide || o.ownerId === me.id) && s.pipelines.find((p) => p.id === o.pipelineId)?.stages.find((x) => x.id === o.stageId)?.kind === "open");
   const byStage = s.pipelines.flatMap((p) => p.stages.filter((st) => st.kind === "open").map((st) => ({ key: st.id, label: `${p.name} · ${st.name}`, count: openOpps.filter((o) => o.stageId === st.id).length, value: openOpps.filter((o) => o.stageId === st.id).reduce((a, o) => a + o.value, 0) }))).filter((r) => r.count);
@@ -46,7 +48,7 @@ export default function Dashboard() {
         {show("ttfr") && <Stat label="Avg. time to first response" value={avg === null ? "—" : fmtDur(avg)} sub={`${acked.length} acknowledged leads`} href="/leads?tab=all" />}
         {show("recovery") && <Stat label="Recovery queue" value={<span className={rec ? "text-bad" : ""}>{rec}</span>} sub="Leads needing attention" href="/leads?tab=recovery" />}
         {show("esc") && <Stat label="Escalations (24h)" value={esc} sub="Automatic only" href="/audit" />}
-        {show("collected") && <Stat label="Collected this month" value={mask(seeVal, money(collected))} sub={seeVal ? `${money(pays.filter((p) => p.status === "pending").reduce((a, p) => a + p.amount, 0))} projected (unpaid)` : "Requires value permission"} href="/payments" />}
+        {show("collected") && <Stat label="Demo collected this month" value={mask(seeVal, collected)} sub="Simulated payments · browser only" href="/payments" />}
         {show("appts") && <Stat label="Upcoming appointments" value={appts.length} sub="Next 7 days" href="/calendar" />}
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-3">

@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 import { uid, startOfDay } from "./utils";
 import { blankWorkspace, defaultSettings, emptyState, makeSeed } from "./seed";
+
 import type { ServerWorkspace } from "./api";
 import type {
   Activity, Appointment, Availability, Contact, Criterion, CustomField, FieldType, IntegrationKey, Lead,
@@ -691,17 +692,24 @@ export const simulateForgedWebhook = () => mutate((s) => sync(s, "messaging", "i
 export const setFailNext = (v: boolean) => mutate((s) => { s.integrations.messaging.failNext = v; });
 
 /* ---------- payments (I2) ---------- */
-export const requestPayment = (oppId: string, amount: number, currency: string) => mutate((s) => {
-  const o = s.opps.find((x) => x.id === oppId); if (!o || !(amount > 0)) return;
-  if (s.integrations.payments.status !== "connected") return;
-  const ref = "cs_test_" + uid("").slice(1);
-  s.payments.unshift({ id: uid("p"), oppId, contactId: o.contactId, amount, currency, at: now(), status: "pending", requestedBy: s.meId ?? "system", ref, link: `https://checkout.stripe.com/c/pay/${ref}` });
-  sync(s, "payments", "out", "ok", ref, "Checkout session created"); act(s, { contactId: o.contactId, oppId, type: "payment", text: `Payment request ${currency} ${amount} created` }); touch(s, o.contactId, "Requested payment");
-});
-export const paymentEvent = (id: string, ev: "paid" | "failed" | "expired" | "refunded") => mutate((s) => {
-  const p = s.payments.find((x) => x.id === id); if (!p) return;
-  if (p.status === ev) { sync(s, "payments", "in", "duplicate", p.ref, `Duplicate ${ev} event ignored`); return; }
-  p.status = ev; sync(s, "payments", "in", "ok", p.ref, `Webhook verified: ${ev}`); act(s, { contactId: p.contactId, oppId: p.oppId, type: "payment", actor: "system", text: `Payment ${ev} (${p.ref})` });
+/** Payments are an explicitly local simulation, including in signed-in workspaces. */
+export async function requestPayment(oppId: string, amount: number, currency: string): Promise<{ ok: boolean; error?: string; fields?: Record<string, string> }> {
+  if (!state.opps.some((o) => o.id === oppId) || !Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Choose an opportunity and enter a positive amount." };
+  mutate((s) => {
+    const o = s.opps.find((x) => x.id === oppId)!;
+    const id = uid("p"); const ref = "demo_" + id;
+    s.payments.unshift({ id, oppId, contactId: o.contactId, amount, currency, at: now(), status: "pending", requestedBy: s.meId ?? "system", ref, link: `${window.location.origin}/payments?demo=${id}`, refundedAmount: 0 });
+    act(s, { contactId: o.contactId, oppId, type: "payment", text: `Demo payment request ${currency} ${amount} created (no money charged)` });
+  });
+  return { ok: true };
+}
+export const paymentEvent = (id: string, ev: "paid" | "failed" | "expired" | "refunded" | "partially_refunded") => mutate((s) => {
+  const p = s.payments.find((x) => x.id === id); if (!p || p.status === ev) return;
+  const refund = ev === "refunded" || ev === "partially_refunded";
+  if (refund ? !["paid", "partially_refunded"].includes(p.status) : p.status !== "pending") return;
+  p.status = ev;
+  if (refund) p.refundedAmount = ev === "refunded" ? p.amount : Math.round(p.amount * 50) / 100;
+  act(s, { contactId: p.contactId, oppId: p.oppId, type: "payment", actor: "system", text: `Demo payment ${ev} (${p.ref}); no real transaction` });
 });
 
 /* ---------- calendar (I3) ---------- */

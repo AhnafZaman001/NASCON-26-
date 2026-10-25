@@ -42,8 +42,11 @@ export interface Message {
 }
 export interface Payment {
   id: string; oppId: string; contactId: string; amount: number; currency: string; at: number;
-  status: "pending" | "paid" | "failed" | "expired" | "refunded"; requestedBy: string; ref: string; link: string;
+  status: "pending" | "paid" | "failed" | "expired" | "refunded" | "partially_refunded"; requestedBy: string; ref: string; link: string;
+  refundedAmount?: number; amountHidden?: boolean; paidAt?: number | null;
+  opportunityTitle?: string; contactName?: string; requesterName?: string; canMessage?: boolean;
 }
+export interface PaymentTotal { currency: string; collected: number | null; projected: number | null; refunded: number | null }
 export interface Appointment {
   id: string; contactId: string; oppId: string | null; memberId: string; title: string;
   start: number; end: number; status: "confirmed" | "cancelled"; tz: string; link?: string | null;
@@ -77,4 +80,5 @@ export interface State {
   appointments: Appointment[]; activity: Activity[]; audit: AuditEntry[]; notifications: AppNotification[];
   integrations: Record<IntegrationKey, Integration>; sync: SyncEvent[]; lists: SavedList[];
   settings: Settings; rr: number; hiddenTiles: Record<string, string[]>;
+  paymentTotals?: PaymentTotal[]; paymentsConfigured?: boolean;
 }
