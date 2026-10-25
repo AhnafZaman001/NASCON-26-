@@ -18,7 +18,13 @@
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": { "service": "api" } },
-    { "source": "/([^.]*)", "destination": { "service": "web", "path": "/index.html" } },
+    {
+      "source": "/([^.]*)",
+      "destination": { "service": "web", "path": "/index.html" },
+      "transforms": [
+        { "type": "request.path", "op": "set", "args": "/index.html" }
+      ]
+    },
     { "source": "/(.*)", "destination": { "service": "web" } }
   ]
 }
