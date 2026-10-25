@@ -40,3 +40,9 @@ node_modules
 .env
 .env*.local
 .turbo
+
+# Isolated browser-test state and reports (never commit sessions or credentials)
+/.e2e/
+/playwright-report/
+/test-results/
+/supabase/.temp/

@@ -15,6 +15,18 @@
     "start:worker": "npm run start -w @nascon/worker",
     "lint": "npm run lint -w @nascon/web",
     "typecheck": "npm run typecheck -w @nascon/api -w @nascon/worker",
-    "bundle:api": "esbuild apps/api/src/app.ts --bundle --platform=node --format=cjs --target=node20 --outfile=apps/api/dist/app.cjs --external:msgpackr-extract --log-level=warning"
+    "bundle:api": "esbuild apps/api/src/app.ts --bundle --platform=node --format=cjs --target=node20 --outfile=apps/api/dist/app.cjs --external:msgpackr-extract --log-level=warning",
+    "e2e:prepare": "node e2e/local-stack.mjs reset",
+    "e2e:stop": "node e2e/local-stack.mjs stop",
+    "test:e2e": "npm run e2e:prepare && playwright test",
+    "test:e2e:run": "playwright test",
+    "test:e2e:types": "tsc --project e2e/tsconfig.json",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:smoke": "npm run e2e:prepare && playwright test --grep \"real owner login\"",
+    "test:e2e:public": "node --use-env-proxy e2e/public-smoke.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "undici": "8.12.3"
   }
 }
